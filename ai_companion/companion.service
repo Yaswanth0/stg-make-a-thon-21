@@ -1,0 +1,28 @@
+# systemd *user* service: it runs inside your login session, so PipeWire and
+# the Bluetooth speaker are available. Install:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp companion.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now companion
+#   sudo loginctl enable-linger $USER     # start at boot without logging in
+#
+# Logs:  journalctl --user -u companion -f
+#
+# Edit the two paths below if the project or venv live somewhere else.
+
+[Unit]
+Description=Offline voice companion
+After=pipewire.service wireplumber.service network-online.target
+Wants=pipewire.service
+
+[Service]
+WorkingDirectory=%h/ai_companion
+ExecStart=%h/ai_companion/venv/bin/python main.py
+Environment=PYTHONUNBUFFERED=1
+# "mayday" exits cleanly (code 0) and stays stopped; a crash restarts it.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

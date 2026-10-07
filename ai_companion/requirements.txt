@@ -1,0 +1,8 @@
+ollama
+faster-whisper
+SpeechRecognition
+PyAudio
+numpy
+dateparser
+ddgs
+pytest
