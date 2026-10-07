@@ -39,5 +39,7 @@ MISSED_REMINDER_GRACE = 5 * 60  # due longer ago than this = announced as "misse
 FOLLOWUP_TIMEOUT = 60        # seconds to wait for "when?" after "remind me to ..."
 
 # ---------------------------------------------------------------- research
-SEARCH_RESULTS = 3
+SEARCH_RESULTS = 5
 SEARCH_TIMEOUT = 10          # seconds
+PAGES_TO_READ = 2            # top results whose page text is read, not just the snippet
+PAGE_TEXT_CHARS = 1200       # text kept per page; more = slower LLM answers

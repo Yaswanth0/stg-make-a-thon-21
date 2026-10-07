@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 from agents.archivist import Archivist, strip_command
 from agents.base import to_second_person
-from agents.researcher import OFFLINE_REPLY, Researcher, search_query
+from agents.researcher import (OFFLINE_REPLY, Researcher, relevant_text, search_query,
+                               weather_place, weather_reply)
 from agents.responder import Responder
 from conftest import FakeLLM
 
@@ -61,31 +62,127 @@ def test_responder_lists_facts_when_asked_about_me(db):
 def test_search_query():
     assert search_query("Search for the price of a Raspberry Pi 5.") == "the price of a Raspberry Pi 5"
     assert search_query("look up cricket scores online") == "cricket scores"
+    assert search_query("Check today's gold price.") == "today's gold price"
+
+
+def researcher(llm, db, **fakes):
+    fakes.setdefault("online", lambda: True)
+    fakes.setdefault("search", lambda query, n: [])
+    fakes.setdefault("fetch_page", lambda url, query: "")
+    fakes.setdefault("weather", lambda place: WTTR_REPORT)
+    return Researcher(llm, db, **fakes)
 
 
 def test_researcher_offline(db):
-    researcher = Researcher(FakeLLM(), db, search=None, online=lambda: False)
-    assert researcher.handle("search for news") == OFFLINE_REPLY
+    assert researcher(FakeLLM(), db, online=lambda: False).handle("search for news") == OFFLINE_REPLY
 
 
-def test_researcher_summarises_results(db):
-    results = [{"title": "Pi 5", "body": "The Raspberry Pi 5 costs $60.", "href": "x"}]
-    seen = {}
+def test_researcher_reads_snippets_and_pages(db):
+    results = [
+        {"title": "Gold rate", "body": "Live gold prices in multiple currencies.", "href": "http://a"},
+        {"title": "Gold news", "body": "Gold rises.", "href": "http://b"},
+        {"title": "Third", "body": "Only a snippet.", "href": "http://c"},
+    ]
+    seen, fetched = {}, []
 
     def search(query, n):
         seen["query"] = query
         return results
 
-    llm = FakeLLM(text_reply="It costs about 60 dollars.")
-    reply = Researcher(llm, db, search=search, online=lambda: True).handle("search for the pi 5 price")
-    assert reply == "It costs about 60 dollars."
-    assert seen["query"] == "the pi 5 price"
-    assert "costs $60" in llm.calls[0]["user"]
+    def fetch_page(url, query):
+        fetched.append(url)
+        return "24K gold: Rs 12,450 per gram" if url == "http://a" else ""
+
+    llm = FakeLLM(text_reply="24 carat gold is 12,450 rupees per gram.")
+    reply = researcher(llm, db, search=search, fetch_page=fetch_page).handle("Check today's gold price.")
+    assert reply == "24 carat gold is 12,450 rupees per gram."
+    assert seen["query"] == "today's gold price"
+    assert fetched == ["http://a", "http://b"]  # PAGES_TO_READ = 2
+    user = llm.calls[0]["user"]
+    assert "Rs 12,450 per gram" in user and "Only a snippet." in user
+    assert "real-time" in llm.calls[0]["system"]
+
+
+def test_researcher_survives_unreadable_page(db):
+    def fetch_page(url, query):
+        raise OSError("403 Forbidden")
+
+    results = [{"title": "T", "body": "B", "href": "http://a"}]
+    llm = FakeLLM(text_reply="ok")
+    assert researcher(llm, db, search=lambda q, n: results, fetch_page=fetch_page).handle("search x") == "ok"
 
 
 def test_researcher_search_failure(db):
     def broken(query, n):
         raise RuntimeError("rate limited")
 
-    reply = Researcher(FakeLLM(), db, search=broken, online=lambda: True).handle("search x")
-    assert "failed" in reply
+    assert "failed" in researcher(FakeLLM(), db, search=broken).handle("search x")
+
+
+# ---------------------------------------------------------------- weather
+WTTR_REPORT = {
+    "current_condition": [{"temp_C": "23", "FeelsLikeC": "25", "humidity": "68",
+                           "weatherDesc": [{"value": "Clear "}]}],
+    "nearest_area": [{"areaName": [{"value": "Secunderabad"}]}],
+    "weather": [
+        {"maxtempC": "31", "mintempC": "21", "hourly": [{"chanceofrain": "0"}, {"chanceofrain": "20"}]},
+        {"maxtempC": "29", "mintempC": "20", "hourly": [{"chanceofrain": "70"}]},
+    ],
+}
+
+
+def test_weather_place():
+    assert weather_place("Can you check today's weather in Hyderabad?") == "Hyderabad"
+    assert weather_place("what's the temperature in new delhi right now") == "New Delhi"
+    assert weather_place("will it rain in Chennai tomorrow") == "Chennai"
+    assert weather_place("what's the weather like") == ""
+    assert weather_place("how hot is it outside") == ""
+
+
+def test_weather_reply():
+    now = weather_reply(WTTR_REPORT, "Hyderabad")
+    assert now.startswith("Right now in Hyderabad it's clear and 23 degrees")
+    assert "high of 31" in now and "20 percent chance of rain" in now
+    assert weather_reply(WTTR_REPORT, "", tomorrow=True) == (
+        "Tomorrow in Secunderabad, expect a high of 29 and a low of 20 degrees, "
+        "with a 70 percent chance of rain.")
+
+
+def test_weather_question_skips_search_and_llm(db):
+    places, llm = [], FakeLLM()
+
+    def weather(place):
+        places.append(place)
+        return WTTR_REPORT
+
+    reply = researcher(llm, db, weather=weather).handle("Can you check today's weather in Hyderabad?")
+    assert places == ["Hyderabad"] and "23 degrees" in reply and llm.calls == []
+
+
+def test_weather_failure_falls_back_to_search(db):
+    def broken(place):
+        raise OSError("timeout")
+
+    results = [{"title": "Weather", "body": "Hyderabad 30C sunny", "href": ""}]
+    llm = FakeLLM(text_reply="It's 30 degrees.")
+    reply = researcher(llm, db, weather=broken, search=lambda q, n: results).handle("weather in Hyderabad")
+    assert reply == "It's 30 degrees."
+
+
+def test_relevant_text_prefers_lines_with_numbers():
+    html = """<html><head><title>x</title><script>var gold = 1;</script></head><body>
+      <nav>Gold Silver Home</nav>
+      <h1>Gold price today</h1>
+      <p>Gold is a precious metal loved by many.</p>
+      <table><tr><td>24K gold price per gram</td><td>Rs 12,450</td></tr></table>
+      <p>Today's 22K gold price is Rs 11,410 per gram.</p>
+      <p>Unrelated text about cars.</p>
+    </body></html>"""
+    text = relevant_text(html, "today's gold price", max_chars=80)
+    assert "Rs 11,410" in text
+    assert "var gold" not in text and "cars" not in text and "Silver Home" not in text
+
+
+def test_relevant_text_keeps_inline_numbers_in_their_sentence():
+    html = "<div><p>Today's gold price stands at <span>Rs 14,957</span> per gram.</p><div>Gold<br>Silver</div></div>"
+    assert relevant_text(html, "gold price", max_chars=500) == "Today's gold price stands at Rs 14,957 per gram. | Gold"
