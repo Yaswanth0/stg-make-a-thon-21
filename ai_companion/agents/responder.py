@@ -7,6 +7,7 @@ and an answer with a number the facts don't contain is replaced by the facts
 themselves.
 """
 
+import logging
 import re
 from datetime import datetime
 
@@ -15,6 +16,8 @@ import prompts
 from agents.base import Agent
 from grounding import keep_supported
 from timeparse import spoken_time
+
+log = logging.getLogger("responder")
 
 # Questions like "what do you know about me?" get all recent facts, not just
 # the ones that share a keyword.
@@ -26,6 +29,14 @@ PERSONAL = re.compile(
     r"|\bwhere (did|do|have) i (park|put|leave|left|keep|store|save)\b"
     r"|\bdo you (know|remember) (my|where i|what my|when my)\b"
 )
+# The Responder has no internet, so a reply saying it searched is invented
+# ("I found that Virat Kohli has scored 43 centuries").
+CLAIMS_SEARCH = re.compile(
+    r"\bI(?: have|'ve)? (?:just )?(?:searched|looked (?:it |that )?up|found (?:that|out)|checked online)\b"
+    r"|\b(?:according to|based on) (?:my|the) (?:search|results)\b|\bsearch results\b",
+    re.IGNORECASE)
+CANT_SEARCH_REPLY = "I can't look that up by myself. Say: search it, and I'll check online."
+
 # ...unless they are about plans, which the reminders answer.
 ABOUT_PLANS = re.compile(r"\b(remind\w*|schedule|plans?|appointments?|agenda|meetings?|today|tomorrow)\b")
 
@@ -58,6 +69,10 @@ class Responder(Agent):
                               temperature=config.RESPONDER_TEMPERATURE)
         if not reply:
             return "Sorry, my language model is not responding."
+        if CLAIMS_SEARCH.search(reply):
+            # It can't search; anything "found" was made up.
+            log.warning("Responder claimed to search: %s", reply)
+            return CANT_SEARCH_REPLY
         if personal:
             reply, dropped = keep_supported(reply, text, *facts)
             if dropped and not reply:

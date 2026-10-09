@@ -6,6 +6,7 @@ The heavy libraries are imported inside the classes, so text mode
 
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -248,9 +249,32 @@ class VoiceInput:
         segments, _ = self._whisper.transcribe(
             samples,
             language="en",
-            beam_size=1,
+            beam_size=config.WHISPER_BEAM_SIZE,
             vad_filter=True,
-            initial_prompt="Rabbit. Mayday. Sleep.",  # nudges spelling of the keywords
+            initial_prompt=config.WHISPER_PROMPT,  # words it should expect to hear
         )
-        text = " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
+        kept = []
+        for s in segments:
+            if is_confident(s):
+                kept.append(s.text.strip())
+            else:
+                log.info("Ignored unclear speech (logprob %.2f, no-speech %.2f): %s",
+                         s.avg_logprob, s.no_speech_prob, s.text.strip())
+        text = " ".join(kept).strip()
+        if is_repetitive(text):
+            log.info("Ignored repetitive speech: %s", text)
+            return None
         return text or None
+
+
+def is_confident(segment):
+    """Whisper's own confidence: drops background noise it turned into words."""
+    return (segment.no_speech_prob < 0.6
+            and segment.avg_logprob >= config.WHISPER_MIN_LOGPROB
+            and segment.compression_ratio <= 2.4)  # higher = repeated words, a known hallucination
+
+
+def is_repetitive(text):
+    """"Good. Good. Good. Good." is noise Whisper heard as words."""
+    words = re.findall(r"[a-z']+", text.lower())
+    return len(words) >= 3 and len(set(words)) == 1

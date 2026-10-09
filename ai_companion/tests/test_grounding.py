@@ -38,7 +38,8 @@ def test_sentences_without_numbers_are_kept():
 def research(reply, results):
     llm = FakeLLM(text_reply=reply)
     researcher = Researcher(llm, None, search=lambda q, n: results, online=lambda: True,
-                            fetch_page=lambda url, q: "", weather=None)
+                            fetch_page=lambda url, q: "", weather=None,
+                            news=lambda q, n: [])
     return researcher.handle("search for the gold price"), llm
 
 
@@ -52,7 +53,7 @@ def test_researcher_drops_invented_figures():
 def test_researcher_with_nothing_grounded_says_so():
     results = [{"title": "Gold", "body": "Live gold rates in many currencies.", "href": ""}]
     reply, _ = research("Gold is 6,100 rupees per gram.", results)
-    assert "couldn't get a reliable answer" in reply
+    assert "couldn't find a reliable answer" in reply
 
 
 # ---------------------------------------------------------------- Responder

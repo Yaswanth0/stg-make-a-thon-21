@@ -59,7 +59,13 @@ MIC_NAME_HINT = "USB"        # the mic is picked by name, so a changed index is 
 MIC_FALLBACK_INDEX = 1
 MIC_SAMPLE_RATE = 48000
 
-WHISPER_MODEL = "base.en"    # "tiny.en" is faster, less accurate
+WHISPER_MODEL = "base.en"    # "small.en" understands much better but is ~3x slower
+WHISPER_BEAM_SIZE = 1        # 5 = a little more accurate, slower
+WHISPER_MIN_LOGPROB = -1.0   # Whisper's confidence; below this the speech is ignored
+# Words Whisper should expect, so it spells them right instead of guessing.
+WHISPER_PROMPT = ("Rabbit. Mayday. Sleep. Search for the weather in Hyderabad. "
+                  "Cricket score of India versus West Indies. Virat Kohli. "
+                  "Recipe for chicken tikka masala, biryani. Remind me to call Mom. Remember my locker code.")
 
 # ---------------------------------------------------------------- LLM
 # Sentences no keyword shortcut matches go to the Responder (False), or to
@@ -80,7 +86,7 @@ RESEARCHER_TEMPERATURE = 0.1
 
 # ---------------------------------------------------------------- storage
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "companion.db")
-HISTORY_TURNS = 4            # past turns the Responder sees
+HISTORY_TURNS = 2            # past turns the Responder sees (more = slower, and misheard junk lingers)
 HISTORY_MAX_AGE = 30 * 60    # seconds; older turns are left out of the context
 MEMORY_MATCHES = 3           # memories the Responder sees per question
 
@@ -93,4 +99,7 @@ FOLLOWUP_TIMEOUT = 60        # seconds to wait for "when?" after "remind me to .
 SEARCH_RESULTS = 3
 SEARCH_TIMEOUT = 10          # seconds
 PAGES_TO_READ = 2            # top results whose page text is read, not just the snippet
-PAGE_TEXT_CHARS = 1200       # text kept per page; more = slower LLM answers
+PAGE_TEXT_CHARS = 600        # text kept per page; more = slower LLM answers
+SNIPPET_CHARS = 300          # text kept per search result
+HOME_CITY = "Hyderabad"      # weather when no place is named
+HOME_COUNTRY = "IN"          # preferred country when a place name exists in several

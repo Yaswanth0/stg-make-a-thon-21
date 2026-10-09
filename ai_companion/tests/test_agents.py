@@ -1,5 +1,6 @@
 """Archivist, Responder and Researcher, with a fake LLM."""
 
+import json
 from datetime import datetime, timedelta
 
 from agents.archivist import Archivist, strip_command
@@ -69,7 +70,8 @@ def researcher(llm, db, **fakes):
     fakes.setdefault("online", lambda: True)
     fakes.setdefault("search", lambda query, n: [])
     fakes.setdefault("fetch_page", lambda url, query: "")
-    fakes.setdefault("weather", lambda place: WTTR_REPORT)
+    fakes.setdefault("weather", lambda place: WEATHER)
+    fakes.setdefault("news", lambda query, n: [])
     return Researcher(llm, db, **fakes)
 
 
@@ -120,14 +122,9 @@ def test_researcher_search_failure(db):
 
 
 # ---------------------------------------------------------------- weather
-WTTR_REPORT = {
-    "current_condition": [{"temp_C": "23", "FeelsLikeC": "25", "humidity": "68",
-                           "weatherDesc": [{"value": "Clear "}]}],
-    "nearest_area": [{"areaName": [{"value": "Secunderabad"}]}],
-    "weather": [
-        {"maxtempC": "31", "mintempC": "21", "hourly": [{"chanceofrain": "0"}, {"chanceofrain": "20"}]},
-        {"maxtempC": "29", "mintempC": "20", "hourly": [{"chanceofrain": "70"}]},
-    ],
+WEATHER = {
+    "place": "Hyderabad", "temp": 23, "feels": 25, "humidity": 68, "condition": "clear",
+    "today": {"max": 31, "min": 21, "rain": 20}, "tomorrow": {"max": 29, "min": 20, "rain": 70},
 }
 
 
@@ -140,12 +137,51 @@ def test_weather_place():
 
 
 def test_weather_reply():
-    now = weather_reply(WTTR_REPORT, "Hyderabad")
+    now = weather_reply(WEATHER)
     assert now.startswith("Right now in Hyderabad it's clear and 23 degrees")
     assert "high of 31" in now and "20 percent chance of rain" in now
-    assert weather_reply(WTTR_REPORT, "", tomorrow=True) == (
-        "Tomorrow in Secunderabad, expect a high of 29 and a low of 20 degrees, "
+    assert weather_reply(WEATHER, tomorrow=True) == (
+        "Tomorrow in Hyderabad, expect a high of 29 and a low of 20 degrees, "
         "with a 70 percent chance of rain.")
+
+
+def test_open_meteo_prefers_the_home_country(monkeypatch):
+    import agents.researcher as researcher_module
+
+    pages = {
+        "geocoding": {"results": [
+            {"name": "Hyderabad", "country_code": "PK", "latitude": 25.4, "longitude": 68.4},
+            {"name": "Hyderabad", "country_code": "IN", "latitude": 17.4, "longitude": 78.5},
+        ]},
+        "forecast": {
+            "current": {"temperature_2m": 28.4, "apparent_temperature": 29.4,
+                        "relative_humidity_2m": 46, "weather_code": 0},
+            "daily": {"temperature_2m_max": [33.6, 34.5], "temperature_2m_min": [24.5, 24.0],
+                      "precipitation_probability_max": [0, 10]},
+        },
+    }
+    asked = []
+
+    def fake_get(url):
+        asked.append(url)
+        return json.dumps(pages["geocoding" if "geocoding" in url else "forecast"])
+
+    monkeypatch.setattr(researcher_module, "http_get", fake_get)
+    weather = researcher_module.open_meteo_weather("Hyderabad")
+    assert "latitude=17.4" in asked[1]  # India, not Pakistan
+    assert weather == {"place": "Hyderabad", "temp": 28, "feels": 29, "humidity": 46, "condition": "clear",
+                       "today": {"max": 34, "min": 24, "rain": 0}, "tomorrow": {"max": 34, "min": 24, "rain": 10}}
+
+
+def test_weather_falls_back_to_wttr(monkeypatch):
+    import agents.researcher as researcher_module
+
+    def down(place):
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(researcher_module, "open_meteo_weather", down)
+    monkeypatch.setattr(researcher_module, "wttr_weather", lambda place: dict(WEATHER, place=place))
+    assert researcher_module.get_weather("")["place"] == "Hyderabad"  # config.HOME_CITY
 
 
 def test_weather_question_skips_search_and_llm(db):
@@ -153,7 +189,7 @@ def test_weather_question_skips_search_and_llm(db):
 
     def weather(place):
         places.append(place)
-        return WTTR_REPORT
+        return WEATHER
 
     reply = researcher(llm, db, weather=weather).handle("Can you check today's weather in Hyderabad?")
     assert places == ["Hyderabad"] and "23 degrees" in reply and llm.calls == []

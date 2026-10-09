@@ -37,8 +37,23 @@ SHORTCUTS = [
         r"|\b(on the (internet|web)|online)\b|\b(news|headlines|weather|forecast|temperature)\b"
         r"|\b(prices?|cost of|rates? of|exchange rate|stock|share price|bitcoin|crypto|sensex|nifty)\b"
         r"|\b(scores?|who won|match result|standings)\b|\b(latest|most recent|breaking)\b"
+        # sports and public figures change too often for the model's own memory
+        r"|\b(centuries|wickets|goals|medals|cricket|ipl|world cup|tournament|elections?)\b"
+        r"|\b(prime minister|president|chief minister|ceo) of\b"
     )),
 ]
+
+# "Search it", "search again", "searching internet": search the previous question.
+SEARCH_THAT = re.compile(
+    r"^(please |ok(ay)?,? |yes,? |then )?(search|look|check|google|find)"
+    r"( it| that| this| again| for it| for that| up| online| internet| the (internet|web)| on the (internet|web))*[.!?]*$"
+    r"|^searching( on)?( the)? (internet|web|online)[.!?]*$"
+    # "... can you search again?", "... please look it up online."
+    r"|\b(search|check|look) (it |that |for it |for that )?again\b"
+    r"|\b(search|look|check) (it|that)( up)?( online| on the (internet|web))?[.!?]*$"
+)
+# "Yes, go ahead" after Rabbit offered to search.
+YES = re.compile(r"^(yes|yeah|yep|sure|ok(ay)?|please( do)?|go ahead|do it|let's go)\b")
 
 SYSTEM_PROMPT = prompts.CONDUCTOR
 
@@ -65,6 +80,21 @@ class Conductor:
         self.use_shortcuts = use_shortcuts
         self.use_llm = config.ROUTE_WITH_LLM if use_llm is None else use_llm
         self._last_agent = None
+        self._last_question = None  # the last real question, for "search it"
+        self._last_reply = ""
+
+    def search_followup(self, text):
+        """The previous question, if `text` asks to search for it ("search it",
+        "search again", or "yes" after Rabbit offered to search); else None."""
+        if not self._last_question:
+            return None
+        lowered = text.lower().strip()
+        if SEARCH_THAT.search(lowered):
+            return self._last_question
+        offered = "search" in self._last_reply.lower()
+        if offered and YES.search(lowered) and len(lowered.split()) <= 7:
+            return self._last_question
+        return None
 
     def classify(self, text):
         """Returns (label, how) where how is "shortcut", "llm" or "default"."""
@@ -83,20 +113,28 @@ class Conductor:
 
     def handle(self, text):
         """Routes `text` to an agent, stores the turn and returns the reply."""
+        request = text
+        previous = self.search_followup(text)
         if self._last_agent is not None and self._last_agent.awaiting_followup():
             agent = self._last_agent
             log.info("Route: %s (follow-up)", agent.name)
+        elif previous:
+            agent, request = self.agents["search"], previous
+            log.info("Route: %s (search the previous question: %s)", agent.name, previous)
         else:
             label, how = self.classify(text)
             agent = self.agents[label]
             log.info("Route: %s (%s)", agent.name, how)
+            if label in ("search", "answer"):
+                self._last_question = text
 
         try:
-            reply = agent.handle(text)
+            reply = agent.handle(request)
         except Exception:
-            log.exception("%s failed on %r", agent.name, text)
+            log.exception("%s failed on %r", agent.name, request)
             reply = "Sorry, something went wrong while handling that."
 
         self._last_agent = agent
+        self._last_reply = reply
         self.db.add_turn(text, reply, agent.name)
         return reply
