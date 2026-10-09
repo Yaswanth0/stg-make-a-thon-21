@@ -64,6 +64,18 @@ Change the pin with `SWITCH_PIN` in `config.py`.
 Run without the switch: `python main.py --no-switch`. Without GPIO
 (a laptop), it's skipped automatically with a warning.
 
+## Status LEDs
+
+| LED | GPIO (physical pin) | Resistor | Lit when |
+|---|---|---|---|
+| Red | GPIO22 (15) | 220 Ω | Rabbit is on (SLEEP or RUNNING) |
+| White | GPIO23 (16) | 68 Ω | Thinking: working out a reply |
+| Yellow | GPIO24 (18) | 220 Ω | The Researcher is using the internet |
+
+Each LED: GPIO pin → resistor → long leg (+); short leg (−) → GND (physical
+pin 14). Pins are in `config.py` (`LED_*_PIN`, `None` = not fitted);
+`--no-leds` turns them off.
+
 ## Tests
 
 ```bash

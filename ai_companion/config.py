@@ -15,6 +15,12 @@ SLEEP_COMMAND_MAX_WORDS = 4  # "sleep", "go to sleep" count; longer sentences do
 SWITCH_PIN = 17              # BCM numbering: GPIO17 is physical pin 11
 SWITCH_DEBOUNCE = 0.3        # seconds a change must last before it counts
 
+# ---------------------------------------------------------------- status LEDs
+# BCM GPIO numbers; None = that LED isn't fitted. Wiring in README.md.
+LED_POWER_PIN = 22           # red: on while Rabbit is on      (physical pin 15)
+LED_THINKING_PIN = 23        # white: thinking                 (physical pin 16)
+LED_INTERNET_PIN = 24        # yellow: Researcher on internet  (physical pin 18)
+
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"
 # Piper: natural female voice, fast on the Pi 5. Kokoro sounds more human but

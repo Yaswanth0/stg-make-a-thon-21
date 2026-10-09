@@ -28,7 +28,9 @@ import time
 from enum import Enum
 
 import config
+import leds
 from db import Database
+from leds import open_leds
 from switch import open_switch
 
 log = logging.getLogger("main")
@@ -67,6 +69,11 @@ def is_sleep_command(words):
 
 
 # ---------------------------------------------------------------- state machine
+def is_on(state):
+    """Red LED: lit while Rabbit is on (asleep or awake)."""
+    return state in (State.SLEEP, State.RUNNING)
+
+
 class Companion:
     """The state machine. Takes heard (or typed) sentences, speaks through
     `say`, and hands real requests to `answer` (the Conductor)."""
@@ -77,10 +84,12 @@ class Companion:
         self.state = state
         self.last_activity = time.monotonic()
         log.info("--- State: %s ---", state.value.upper())
+        leds.status.power(is_on(state))
 
     def set_state(self, new_state):
         log.info("--- State: %s ---", new_state.value.upper())
         self.state = new_state
+        leds.status.power(is_on(new_state))
 
     def switch_off(self):
         """Rocker switch turned OFF: SLEEP or RUNNING -> OFF."""
@@ -98,7 +107,9 @@ class Companion:
         self.last_activity = time.monotonic()
 
     def respond(self, text):
-        self.say(self.answer(text))
+        with leds.status.thinking():  # white LED while the reply is worked out
+            reply = self.answer(text)
+        self.say(reply)
         self.last_activity = time.monotonic()
 
     def check_timeout(self):
@@ -349,6 +360,7 @@ def main(argv=None):
     parser.add_argument("--text", action="store_true", help="type instead of speaking")
     parser.add_argument("--speak", action="store_true", help="with --text: also speak replies")
     parser.add_argument("--no-switch", action="store_true", help="ignore the rocker switch")
+    parser.add_argument("--no-leds", action="store_true", help="don't use the status LEDs")
     parser.add_argument("--debug", action="store_true", help="more detailed logs")
     args = parser.parse_args(argv)
 
@@ -363,6 +375,7 @@ def main(argv=None):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     control = SwitchControl(open_switch(enabled=not args.no_switch))
+    leds.status = open_leds(enabled=not args.no_leds)
     db = Database(config.DB_FILE)
     llm, llm_ready = load_llm()
     conductor = build_conductor(llm, db)
@@ -375,6 +388,7 @@ def main(argv=None):
         pass
     finally:
         control.close()
+        leds.status.close()  # all LEDs off when the program ends
         db.close()
 
 
