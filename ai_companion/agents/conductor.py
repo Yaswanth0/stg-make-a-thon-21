@@ -11,6 +11,7 @@ import logging
 import re
 
 import config
+import music
 import prompts
 from recall import is_recall
 
@@ -59,12 +60,34 @@ YES = re.compile(r"^(yes|yeah|yep|sure|ok(ay)?|please( do)?|go ahead|do it|let's
 SYSTEM_PROMPT = prompts.CONDUCTOR
 
 
+# Music (an optional agent, used when one is given to the Conductor).
+MUSIC_REQUEST = re.compile(
+    r"^(please |can you |could you |will you )?(play|put on)\b"
+    r"|\b(play|put on) (a |some |any |me (a |some )?)?(songs?|music|tracks?)\b"
+    r"|\b(stop|pause|resume|continue|unpause|turn off)( the| this| that)? (music|songs?|track)\b"
+    r"|\b(next|another|different|skip( this| the)?|change( the| this)?) (songs?|tracks?)\b"
+    r"|\bwhat('s| is) this song\b|\bwhich song\b"
+)
+# While a song plays, short commands are clearly about it: "stop", "next one".
+MUSIC_CONTROL = re.compile(r"^(stop|pause|resume|continue|next|skip|play|another)\b")
+
+
 def shortcut_label(text):
     """The label for an obvious sentence, or None."""
     lowered = text.lower().strip()
     for label, pattern in SHORTCUTS:
         if pattern.search(lowered):
             return label
+    return None
+
+
+def music_label(text, playing):
+    """"music" for a music request, or a short command while a song plays."""
+    lowered = text.lower().strip()
+    if MUSIC_REQUEST.search(lowered):
+        return "music"
+    if playing and MUSIC_CONTROL.search(lowered) and len(lowered.split()) <= 4:
+        return "music"
     return None
 
 
@@ -103,7 +126,10 @@ class Conductor:
             # "What was the gold price you told me?" is about the past, not a new search.
             return DEFAULT_LABEL, "recall"
         if self.use_shortcuts:
+            # "Remind me to play cricket" is a reminder, so reminders go first.
             label = shortcut_label(text)
+            if label != "schedule" and "music" in self.agents and music_label(text, music.player.is_active()):
+                return "music", "shortcut"
             if label:
                 return label, "shortcut"
         if not self.use_llm:

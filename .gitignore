@@ -7,3 +7,6 @@ venv/
 *.db-shm
 conversation_log.txt
 voices/
+# Songs stay on the device (copyright); only the folder's README is in git.
+ai_companion/music/*
+!ai_companion/music/README.md

@@ -103,6 +103,14 @@ REMINDER_CHECK_INTERVAL = 5  # seconds between checks for due reminders
 MISSED_REMINDER_GRACE = 5 * 60  # due longer ago than this = announced as "missed"
 FOLLOWUP_TIMEOUT = 60        # seconds to wait for "when?" after "remind me to ..."
 
+# ---------------------------------------------------------------- music
+# Songs in this folder; "play a song" picks one at random. Needs: sudo apt install mpv
+MUSIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music")
+MUSIC_EXTENSIONS = {".mp3", ".m4a", ".ogg", ".flac", ".wav", ".opus"}
+MUSIC_VOLUME = 70            # percent
+MUSIC_DUCK_VOLUME = 15       # while Rabbit speaks, and after "Rabbit" while you speak
+MUSIC_LISTEN_SECONDS = 8     # how long the music stays quiet after "Rabbit"
+
 # ---------------------------------------------------------------- research
 SEARCH_RESULTS = 3
 SEARCH_TIMEOUT = 10          # seconds

@@ -64,6 +64,15 @@ Change the pin with `SWITCH_PIN` in `config.py`.
 Run without the switch: `python main.py --no-switch`. Without GPIO
 (a laptop), it's skipped automatically with a warning.
 
+## Music
+
+"Play a song" (or "play some music", "play something") plays a random song
+from `music/`. While it plays: "pause", "resume", "next song", "stop the
+music", "what song is this?". The music goes quiet while Rabbit speaks and for
+a few seconds after you say "Rabbit"; lyrics are ignored unless you say
+"Rabbit" first. Switching OFF stops the music. Needs `sudo apt install mpv`.
+Songs aren't in git: copy them into `music/` on the Pi (see `music/README.md`).
+
 ## Status LEDs
 
 | LED | GPIO (physical pin) | Resistor | Lit when |

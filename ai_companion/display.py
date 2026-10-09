@@ -10,6 +10,7 @@ is doing.
     happy       ^ ^ eyes and a heart (a fact was saved)
     alert       wide eyes and a flashing "!" (a reminder is going off)
     confused    one eyebrow up and a "?" (speech it couldn't make out)
+    music       headphones, eyes closed enjoying it, notes floating (a song is playing)
     off         blank screen
 
 The program says what it is doing with `with screen.mood("thinking"):` or
@@ -36,7 +37,7 @@ FRAME_SECONDS = 0.16
 
 # Most important first: the face shows the first active one. "speaking" only
 # moves the mouth, so it combines with whichever face is showing.
-PRIORITY = ["alert", "happy", "confused", "searching", "thinking", "hearing"]
+PRIORITY = ["alert", "happy", "confused", "searching", "thinking", "hearing", "music"]
 # While asleep the mic still listens for "Rabbit"; the face shouldn't react to
 # every noise, only to a reminder going off.
 ASLEEP_MOODS = {"alert", "speaking"}
@@ -66,7 +67,7 @@ def _eyes(draw, mood, t):
     for ex in (CX - 12, CX + 12):
         if mood == "asleep":
             draw.arc((ex - 5, EYE_Y - 4, ex + 5, EYE_Y + 4), start=20, end=160, fill=WHITE)
-        elif mood == "happy":
+        elif mood in ("happy", "music"):
             draw.arc((ex - 5, EYE_Y - 2, ex + 5, EYE_Y + 6), start=200, end=340, fill=WHITE)  # ^ ^
         elif mood == "awake" and t % 4.0 > 3.85:
             draw.line((ex - 4, EYE_Y, ex + 4, EYE_Y), fill=WHITE)  # blink
@@ -132,6 +133,17 @@ def _extras(draw, mood, frame):
             r = 6 + i * 5
             draw.arc((CX - 22 - r, 14 - r, CX - 22 + r, 14 + r), start=140, end=220, fill=WHITE)
             draw.arc((CX + 22 - r, 14 - r, CX + 22 + r, 14 + r), start=320, end=40, fill=WHITE)
+    elif mood == "music":
+        # Headphones: a band over the head and a cup on each side.
+        draw.arc((CX - 33, 10, CX + 33, 60), start=200, end=340, fill=WHITE, width=2)
+        for x in (CX - 35, CX + 29):
+            draw.rounded_rectangle((x, 31, x + 6, 45), radius=2, fill=WHITE)
+        # Two notes drifting up, one on each side.
+        for i, x in enumerate((CX - 52, CX + 42)):
+            y = 20 - (frame + i * 3) % 6 * 3
+            draw.ellipse((x, y + 6, x + 5, y + 10), fill=WHITE)
+            draw.line((x + 5, y, x + 5, y + 8), fill=WHITE)
+            draw.line((x + 5, y, x + 9, y + 3), fill=WHITE)
     elif mood == "happy":
         hx, hy = CX + 46, 6
         draw.ellipse((hx - 6, hy - 3, hx, hy + 3), fill=WHITE)
@@ -163,6 +175,7 @@ class RabbitDisplay:
         self._base = "off"            # "off", "asleep" or "awake", from Rabbit's state
         self._active = {}             # mood -> how many `with mood()` blocks hold it
         self._until = {}              # flashed mood -> time.monotonic() when it ends
+        self._held = set()            # moods switched on until switched off ("music")
         self._drawn = None            # bytes of the last frame sent, to skip repeats
         self._stop = threading.Event()
         self._thread = None
@@ -190,6 +203,12 @@ class RabbitDisplay:
                 self._active[name] -= 1
             self.refresh()
 
+    def hold(self, name, on):
+        """Shows `name` until it is switched off (a song playing)."""
+        with self._lock:
+            (self._held.add if on else self._held.discard)(name)
+        self.refresh()
+
     def flash(self, name, seconds=None):
         """Shows `name` for a moment ("happy" when a fact is saved)."""
         with self._lock:
@@ -204,6 +223,7 @@ class RabbitDisplay:
                 return "off", False
             live = {m for m, n in self._active.items() if n > 0}
             live |= {m for m, end in self._until.items() if end > now}
+            live |= self._held
             base = self._base
         if base == "asleep":
             live &= ASLEEP_MOODS
@@ -273,7 +293,7 @@ if __name__ == "__main__":
     # Preview without a screen: python display.py -> rabbit_faces.png
     from PIL import Image
 
-    moods = ["awake", "asleep", "hearing", "thinking", "searching", "happy", "alert", "confused"]
+    moods = ["awake", "asleep", "hearing", "thinking", "searching", "happy", "alert", "confused", "music"]
     sheet = Image.new("1", (WIDTH * 4 + 12, (HEIGHT + 4) * 2 + 4 + HEIGHT + 4), 1)
     for i, mood in enumerate(moods):
         t = 2 * FRAME_SECONDS + 0.01  # a frame where every animation is showing something

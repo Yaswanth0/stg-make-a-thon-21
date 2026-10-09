@@ -14,6 +14,7 @@ from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
 
 import config
 import display
+import music
 from tts import EspeakTTS, clean_for_speech, make_tts, speech_chunks
 
 log = logging.getLogger("audio")
@@ -62,7 +63,8 @@ class Speaker:
             self._speaking = True
             try:
                 ready = self._prepare(chunks[0], self._wavs[0])
-                with display.screen.mood("speaking"):  # the rabbit's mouth moves
+                # The rabbit's mouth moves, and any song plays quietly underneath.
+                with display.screen.mood("speaking"), music.player.ducked():
                     for i in range(len(chunks)):
                         if self._muted:
                             break

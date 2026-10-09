@@ -30,6 +30,8 @@ from enum import Enum
 import config
 import display
 import leds
+import music
+from agents.conductor import music_label
 from db import Database
 from display import open_display
 from leds import open_leds
@@ -118,10 +120,14 @@ class Companion:
         with leds.status.thinking(), display.screen.mood("thinking"):
             reply = self.answer(text)
         self.say(reply)
+        music.player.start_pending()  # a song chosen by this reply starts now
         self.last_activity = time.monotonic()
 
     def check_timeout(self):
         """RUNNING -> SLEEP after SILENCE_TIMEOUT seconds without understood speech."""
+        if music.player.is_active():
+            self.last_activity = time.monotonic()  # listening to music isn't "no activity"
+            return
         if self.state is State.RUNNING and time.monotonic() - self.last_activity >= config.SILENCE_TIMEOUT:
             self.say("No activity. Going to sleep.")
             self.set_state(State.SLEEP)
@@ -139,6 +145,8 @@ class Companion:
             return
 
         woke, rest = split_on_wake_word(words)
+        if woke and music.player.is_playing():
+            music.player.duck_for(config.MUSIC_LISTEN_SECONDS)  # quieter, so the request is heard
         if self.state is State.SLEEP:
             if woke:
                 self.set_state(State.RUNNING)
@@ -151,6 +159,12 @@ class Companion:
             return
 
         # state is RUNNING
+        song_playing = music.player.is_playing() and not music.player.is_listening()
+        if song_playing and not woke and not music_label(text, playing=True):
+            # The mic hears the song too: lyrics aren't requests.
+            log.info("Ignored while music plays (say 'Rabbit' first): %s", text)
+            return
+
         if is_sleep_command(words):
             self.say("Going to sleep.")
             self.set_state(State.SLEEP)
@@ -167,13 +181,14 @@ class Companion:
 
 # ---------------------------------------------------------------- setup
 def build_conductor(llm, db):
-    from agents import Archivist, Conductor, Researcher, Responder, Scheduler
+    from agents import Archivist, Conductor, Music, Researcher, Responder, Scheduler
 
     return Conductor(llm, db, {
         "schedule": Scheduler(llm, db),
         "search": Researcher(llm, db),
         "remember": Archivist(llm, db),
         "answer": Responder(llm, db),
+        "music": Music(),
     })
 
 
@@ -310,6 +325,7 @@ def run_text(conductor, db, control, speak):
             return None
 
     def pause():
+        music.player.stop()
         watcher.pause()
         if speaker:
             speaker.mute()
@@ -348,6 +364,7 @@ def run_voice(conductor, db, control, llm_ready):
             return voice.listen(5 if companion.state is State.SLEEP else 15)
 
         def pause():
+            music.player.stop()
             watcher.pause()
             speaker.mute()
             voice.pause()
@@ -400,6 +417,7 @@ def main(argv=None):
         control.close()
         leds.status.close()  # all LEDs off when the program ends
         display.screen.close()  # and the screen blank
+        music.player.close()    # and the music stopped
         db.close()
 
 
