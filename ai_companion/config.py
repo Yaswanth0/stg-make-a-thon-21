@@ -17,7 +17,16 @@ SWITCH_DEBOUNCE = 0.3        # seconds a change must last before it counts
 
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"
-SPEECH_RATE = 150            # words per minute
+TTS_ENGINE = "piper"         # "piper" = natural voice, "espeak" = robotic but tiny
+# Piper voices: https://rhasspy.github.io/piper-samples/ (listen before choosing).
+#   en_US-lessac-medium  clear, neutral US voice (default)
+#   en_US-amy-medium     US female        en_US-ryan-medium     US male
+#   en_GB-alba-medium    UK female        en_GB-northern_english_male-medium
+#   "-high" versions sound a little better but take longer to speak on the Pi.
+PIPER_VOICE = "en_US-lessac-medium"
+PIPER_VOICES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices")
+PIPER_LENGTH_SCALE = 1.0     # speaking speed: 0.9 = a bit faster, 1.1 = a bit slower
+SPEECH_RATE = 150            # espeak-ng only: words per minute
 
 MIC_NAME_HINT = "USB"        # the mic is picked by name, so a changed index is fine
 MIC_FALLBACK_INDEX = 1

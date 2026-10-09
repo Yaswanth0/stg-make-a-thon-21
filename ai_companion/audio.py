@@ -11,17 +11,19 @@ import time
 from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
 
 import config
+from tts import EspeakTTS, clean_for_speech, make_tts
 
 log = logging.getLogger("audio")
 
 
 # ---------------------------------------------------------------- audio out
 class Speaker:
-    """Speaks through espeak-ng and PipeWire. The main loop and the reminder
-    thread both speak, so a lock makes one wait for the other instead of
-    talking over it."""
+    """Speaks through Piper (or espeak-ng, see tts.py) and PipeWire. The main
+    loop and the reminder thread both speak, so a lock makes one wait for the
+    other instead of talking over it."""
 
-    def __init__(self):
+    def __init__(self, tts=None):
+        self._tts = tts or make_tts()
         self._lock = threading.Lock()
         self._speaking = False
         self._last_spoke = 0.0  # time.monotonic() when the last speech ended
@@ -38,12 +40,7 @@ class Speaker:
                 return
             self._speaking = True
             try:
-                subprocess.run(
-                    ["espeak-ng", "-s", str(config.SPEECH_RATE), "-w", config.TTS_WAV, "--stdin"],
-                    input=text,
-                    text=True,
-                    check=True,
-                )
+                self._synthesize(clean_for_speech(text))
                 self._player = subprocess.Popen(["pw-play", config.TTS_WAV])
                 self._player.wait()
             except FileNotFoundError as e:
@@ -57,6 +54,16 @@ class Speaker:
                 self._player = None
                 self._speaking = False
                 self._last_spoke = time.monotonic()
+
+    def _synthesize(self, text):
+        try:
+            self._tts.synthesize(text, config.TTS_WAV)
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            raise
+        except Exception as e:
+            # Piper failed on this sentence: say it with espeak-ng rather than not at all.
+            log.error("%s failed (%s); using espeak-ng", self._tts.name, e)
+            EspeakTTS().synthesize(text, config.TTS_WAV)
 
     def mute(self):
         """Stops any speech playing now (from any thread) and stays silent

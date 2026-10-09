@@ -23,6 +23,11 @@ pip install -r requirements.txt
 ollama pull llama3.2:3b
 ```
 
+The voice is Piper (`TTS_ENGINE` in `config.py`). Its voice model, about 60 MB,
+downloads into `voices/` on the first start, so be online that once. Without
+Piper or the voice, Rabbit falls back to espeak-ng. Hear the voices at
+https://rhasspy.github.io/piper-samples/ and pick one with `PIPER_VOICE`.
+
 ## Running
 
 ```bash
