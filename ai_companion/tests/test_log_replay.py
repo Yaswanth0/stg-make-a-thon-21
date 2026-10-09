@@ -126,3 +126,37 @@ def test_unclear_speech_is_ignored():
 def test_repetitive_speech_is_ignored():
     assert is_repetitive("Good. Good. Good. Good.")
     assert not is_repetitive("Good morning, Rabbit.")
+
+
+# ---------------------------------------------------------------- "what is my age?"
+@pytest.mark.parametrize("question", ["What is my age?", "how old am I?", "When was I born?"])
+def test_age_is_found_though_the_fact_never_says_age(db, question):
+    db.add_memory("The user is 24 years old.")  # exactly as saved on the Pi
+    llm = FakeLLM(text_reply="You are 24 years old.")
+    assert Responder(llm, db).handle(question) == "You are 24 years old."
+    assert "The user is 24 years old." in llm.calls[0]["system"]
+
+
+def test_synonyms_find_facts():
+    from db import with_synonyms
+
+    assert {"old", "years"} <= set(with_synonyms(["age"]))
+    assert "number" in with_synonyms(["phone"])
+
+
+def test_personal_question_with_no_match_sees_all_facts(db):
+    db.add_memory("The user's employer is Infosys.")
+    llm = FakeLLM(text_reply="You work at Infosys.")
+    assert Responder(llm, db).handle("Where is my office?") == "You work at Infosys."
+
+
+def test_wrong_age_is_still_caught(db):
+    db.add_memory("The user is 24 years old.")
+    llm = FakeLLM(text_reply="You are 25 years old.")
+    assert Responder(llm, db).handle("What is my age?") == "Here's what I have saved: You are 24 years old."
+
+
+def test_nothing_saved_at_all_still_says_so(db):
+    llm = FakeLLM(text_reply="You are 30.")
+    assert "don't have that saved" in Responder(llm, db).handle("What is my age?")
+    assert llm.calls == []

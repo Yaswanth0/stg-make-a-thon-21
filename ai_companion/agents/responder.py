@@ -27,7 +27,8 @@ ABOUT_ME = re.compile(r"\b(about me|do you (know|remember)|have i told you|what 
 PERSONAL = re.compile(
     r"\b(what|where|when|which|who)('s| is| are| was| were) my\b"
     r"|\bwhere (did|do|have) i (park|put|leave|left|keep|store|save)\b"
-    r"|\bdo you (know|remember) (my|where i|what my|when my)\b"
+    r"|\bdo you (know|remember) (my|where i|what my|when my|how old)\b"
+    r"|\bhow old am i\b|\bwhat do i do for (a )?(living|work)\b"
 )
 # The Responder has no internet, so a reply saying it searched is invented
 # ("I found that Virat Kohli has scored 43 centuries").
@@ -83,6 +84,10 @@ class Responder(Agent):
         facts = self.db.search_memories(text, config.MEMORY_MATCHES)
         if ABOUT_ME.search(text.lower()):
             facts = list(dict.fromkeys(facts + self.db.recent_memories(8)))
+        if not facts and is_personal(text):
+            # No keyword matched, but the answer may still be there in other
+            # words. Show the model the saved facts; numbers are checked after.
+            facts = self.db.recent_memories(config.MEMORY_FALLBACK)
         return facts
 
     def history(self):

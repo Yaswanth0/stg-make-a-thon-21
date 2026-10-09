@@ -61,6 +61,37 @@ def keywords(text):
     return [w for w in dict.fromkeys(words) if w not in STOPWORDS and len(w) > 1]
 
 
+# Words people use for the same thing: "what's my age?" must find
+# "The user is 24 years old.", which never says "age".
+SYNONYM_GROUPS = [
+    {"age", "old", "years", "born", "birthday"},
+    {"birthday", "born", "birth"},
+    {"name", "called", "named"},
+    {"live", "lives", "living", "address", "stay", "home", "house", "city"},
+    {"phone", "number", "mobile", "contact"},
+    {"work", "works", "job", "office", "profession", "company", "employer"},
+    {"study", "studies", "college", "school", "university", "course"},
+    {"car", "bike", "vehicle", "parked", "parking"},
+    {"password", "pin", "code", "passcode"},
+    {"mail", "email"},
+    {"wife", "husband", "spouse", "partner"},
+    {"mom", "mother", "mum"},
+    {"dad", "father"},
+    {"favourite", "favorite", "like", "likes", "love", "loves"},
+    {"doctor", "dr"},
+]
+
+
+def with_synonyms(words):
+    """["age"] -> ["age", "old", "years", "born", "birthday"]."""
+    expanded = list(words)
+    for word in words:
+        for group in SYNONYM_GROUPS:
+            if word in group:
+                expanded.extend(w for w in group if w not in expanded)
+    return expanded
+
+
 class Database:
     def __init__(self, path):
         self._lock = threading.Lock()
@@ -130,8 +161,8 @@ class Database:
             return cur.lastrowid
 
     def search_memories(self, text, limit):
-        """Facts sharing keywords with `text`, best match first."""
-        words = keywords(text)
+        """Facts sharing keywords (or their synonyms) with `text`, best match first."""
+        words = with_synonyms(keywords(text))
         if not words:
             return []
         if self.has_fts:

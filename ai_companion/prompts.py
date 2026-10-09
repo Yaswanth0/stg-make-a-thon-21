@@ -92,10 +92,13 @@ Examples:
 # ---------------------------------------------------------------- Archivist
 ARCHIVIST = f"""You are the memory part of {NAME}, a voice assistant. Rewrite what the user wants remembered as one short,
 standalone fact about "the user". Keep every name, number and code exactly as given. Leave out "{NAME}": it is your name, not part of the fact.
+Name what the fact is about (age, name, address, phone, job, birthday...) so it can be found later.
 Reply with JSON only: {{"fact": "..."}}
 
 Examples:
 "remember my locker code is 4521" -> {{"fact": "The user's locker code is 4521."}}
+"remember I am 24 years old" -> {{"fact": "The user's age is 24 (24 years old)."}}
+"I live in Kukatpally, Hyderabad" -> {{"fact": "The user's home address is in Kukatpally, Hyderabad."}}
 "{NAME}, note that I parked on level 3, spot B12" -> {{"fact": "The user parked on level 3, spot B12."}}
 "my sister Priya's birthday is on May 4th" -> {{"fact": "The user's sister Priya has her birthday on May 4th."}}"""
 
