@@ -92,7 +92,7 @@ class RecordingTTS:
 def make_speaker(monkeypatch):
     log = []
     monkeypatch.setattr(audio.subprocess, "Popen", lambda cmd: FakePlayer(log, cmd[1]))
-    return audio.Speaker(tts=RecordingTTS(log)), log
+    return audio.Speaker(tts=RecordingTTS(log), phrases=()), log
 
 
 def test_next_sentence_is_synthesized_while_one_plays(monkeypatch):
@@ -131,5 +131,36 @@ def test_speaker_uses_espeak_for_a_sentence_the_voice_fails_on(monkeypatch):
 
     spoken = []
     monkeypatch.setattr(audio.EspeakTTS, "synthesize", lambda self, text, path: spoken.append(text))
-    audio.Speaker(tts=BrokenVoice())._synthesize("Hello there.", "/tmp/x.wav")
+    audio.Speaker(tts=BrokenVoice(), phrases=())._synthesize("Hello there.", "/tmp/x.wav")
     assert spoken == ["Hello there."]
+
+
+# ---------------------------------------------------------------- speed
+def test_long_first_sentence_is_split_at_a_comma():
+    reply = ("Right now in Hyderabad it's clear and 23 degrees, feels like 25, humidity 68 percent. "
+             "Today, a high of 33 and a low of 22 degrees.")
+    assert speech_chunks(reply) == [
+        "Right now in Hyderabad it's clear and 23 degrees,",
+        "feels like 25, humidity 68 percent.",
+        "Today, a high of 33 and a low of 22 degrees.",
+    ]
+
+
+@pytest.mark.parametrize("reply", [
+    "Okay, I'll remind you to call Mom at 6 PM.",          # short enough already
+    "The capital of France is Paris and it is very old.",   # no comma to split at
+    "In short, yes.",                                       # the rest would be too short
+])
+def test_first_piece_left_whole(reply):
+    assert speech_chunks(reply) == [reply]
+
+
+def test_fixed_phrases_play_from_the_cache(monkeypatch):
+    log = []
+    monkeypatch.setattr(audio.subprocess, "Popen", lambda cmd: FakePlayer(log, cmd[1]))
+    speaker = audio.Speaker(tts=RecordingTTS(log), phrases=("Yes?", "Switched on."))
+    speaker.prewarm_thread.join(timeout=5)
+    log.clear()
+    speaker.say("Yes?")
+    assert [entry[0] for entry in log] == ["play", "done"]  # nothing synthesized
+    assert log[0][1].endswith(".wav") and "_cache" in log[0][1]

@@ -25,6 +25,17 @@ TTS_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice
 # Samples: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
 KOKORO_VOICE = "af_heart"
 KOKORO_SPEED = 1.0           # 1.1 = a bit faster, 0.9 = a bit slower
+KOKORO_MODEL = "int8"        # "int8" (92 MB) or "fp32" (310 MB); run tts_benchmark.py to pick the faster
+
+# Speed: speech starts once the first piece is synthesized, and the rest is
+# made while it plays. A long first sentence is split at its first comma.
+TTS_THREADS = 4              # CPU cores for Kokoro (the Pi 5 has 4)
+TTS_FIRST_CHUNK_WORDS = 8    # first sentences longer than this are split at a comma
+# Fixed replies, synthesized once at startup so they play instantly.
+TTS_CACHED_PHRASES = [
+    "Yes?", "Going to sleep.", "No activity. Going to sleep.", "Shutting down.",
+    "Switched on.", "Switched off.", "System ready.",
+]
 
 # Piper (used if Kokoro can't load). Female voices:
 #   en_US-hfc_female-medium, en_US-amy-medium, en_US-kristin-medium, en_GB-jenny_dioco-medium

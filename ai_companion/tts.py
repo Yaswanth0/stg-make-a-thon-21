@@ -13,6 +13,7 @@ import io
 import logging
 import re
 import subprocess
+import time
 import wave
 from pathlib import Path
 from urllib.request import urlopen
@@ -22,8 +23,11 @@ import config
 log = logging.getLogger("tts")
 
 KOKORO_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
-KOKORO_MODEL = "kokoro-v1.0.int8.onnx"  # 92 MB; int8 = the fastest on a Pi CPU
-KOKORO_VOICES = "voices-v1.0.bin"       # 28 MB, every Kokoro voice
+KOKORO_MODELS = {
+    "int8": "kokoro-v1.0.int8.onnx",  # 92 MB
+    "fp32": "kokoro-v1.0.onnx",       # 310 MB; on ARM CPUs often faster than int8
+}
+KOKORO_VOICES = "voices-v1.0.bin"     # 28 MB, every Kokoro voice
 
 
 # ---------------------------------------------------------------- text cleanup
@@ -45,6 +49,7 @@ _REPLACEMENTS = [
     (re.compile(r"\s{2,}"), " "),
 ]
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_CLAUSE_END = re.compile(r"(?<=[,;:])\s+")
 MIN_CHUNK = 25  # characters; shorter sentences are joined to the next one
 
 
@@ -71,7 +76,22 @@ def speech_chunks(text):
             chunks[-1] = f"{chunks[-1]} {current}"
         else:
             chunks.append(current)
+    if chunks:
+        chunks[:1] = split_first(chunks[0])
     return chunks
+
+
+def split_first(chunk):
+    """Synthesis time grows with length, so a long first sentence is split
+    at its first comma: "Today in Hyderabad, it's sunny and 32 degrees." ->
+    ["Today in Hyderabad,", "it's sunny and 32 degrees."]. The listener
+    hears the start sooner; the rest is made while it plays."""
+    if len(chunk.split()) <= config.TTS_FIRST_CHUNK_WORDS:
+        return [chunk]
+    parts = _CLAUSE_END.split(chunk, maxsplit=1)
+    if len(parts) == 2 and len(parts[0].split()) >= 3 and len(parts[1]) >= MIN_CHUNK:
+        return parts
+    return [chunk]
 
 
 # ---------------------------------------------------------------- engines
@@ -88,24 +108,37 @@ class EspeakTTS:
 class KokoroTTS:
     name = "kokoro"
 
-    def __init__(self, voice=config.KOKORO_VOICE, models_dir=config.TTS_MODELS_DIR):
+    def __init__(self, voice=config.KOKORO_VOICE, models_dir=config.TTS_MODELS_DIR,
+                 model=config.KOKORO_MODEL):
+        import onnxruntime as ort
         from kokoro_onnx import Kokoro
 
         models_dir = Path(models_dir)
-        model = download_once(KOKORO_URL + KOKORO_MODEL, models_dir / KOKORO_MODEL)
+        filename = KOKORO_MODELS[model]
+        model_path = download_once(KOKORO_URL + filename, models_dir / filename)
         voices = download_once(KOKORO_URL + KOKORO_VOICES, models_dir / KOKORO_VOICES)
-        self._kokoro = Kokoro(str(model), str(voices))
+
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = config.TTS_THREADS  # all 4 Pi 5 cores
+        options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        session = ort.InferenceSession(str(model_path), sess_options=options,
+                                       providers=["CPUExecutionProvider"])
+        self._kokoro = Kokoro.from_session(session, str(voices))
         self._voice = voice
         # Voice names start with the accent: a = American, b = British.
         self._lang = "en-gb" if voice.startswith("b") else "en-us"
         self._kokoro.create("Ready.", voice=voice, speed=config.KOKORO_SPEED, lang=self._lang)  # warm-up
-        log.info("Kokoro voice %s loaded", voice)
+        log.info("Kokoro voice %s loaded (%s model, %d threads)", voice, model, config.TTS_THREADS)
 
     def synthesize(self, text, wav_path):
+        started = time.monotonic()
         samples, sample_rate = self._kokoro.create(
             text, voice=self._voice, speed=config.KOKORO_SPEED, lang=self._lang,
         )
         write_wav(wav_path, samples, sample_rate)
+        log_timing(self.name, text, time.monotonic() - started, len(samples) / sample_rate)
 
 
 class PiperTTS:
@@ -123,8 +156,18 @@ class PiperTTS:
         log.info("Piper voice %s loaded", voice)
 
     def synthesize(self, text, wav_path):
+        started = time.monotonic()
         with wave.open(wav_path, "wb") as wav:
             self._voice.synthesize_wav(text, wav, syn_config=self._options)
+        with wave.open(wav_path, "rb") as wav:
+            audio_seconds = wav.getnframes() / wav.getframerate()
+        log_timing(self.name, text, time.monotonic() - started, audio_seconds)
+
+
+def log_timing(engine, text, took, audio_seconds):
+    """"kokoro: 1.40s for 2.9s of audio (x0.48)": below x1.0 = faster than real time."""
+    ratio = took / audio_seconds if audio_seconds else 0.0
+    log.info("%s: %.2fs for %.1fs of audio (x%.2f): %s", engine, took, audio_seconds, ratio, text[:40])
 
 
 ENGINES = {"kokoro": KokoroTTS, "piper": PiperTTS, "espeak": EspeakTTS}

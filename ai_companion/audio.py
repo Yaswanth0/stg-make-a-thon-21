@@ -5,6 +5,7 @@ The heavy libraries are imported inside the classes, so text mode
 """
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -20,12 +21,14 @@ log = logging.getLogger("audio")
 class Speaker:
     """Speaks through Kokoro, Piper or espeak-ng (see tts.py) and PipeWire.
 
-    A reply is spoken sentence by sentence: while one sentence plays, the next
-    is being synthesized, so speech starts after the first sentence instead of
-    after the whole reply. The main loop and the reminder thread both speak,
-    so a lock makes one wait for the other instead of talking over it."""
+    A reply is spoken piece by piece: while one piece plays, the next is being
+    synthesized, so speech starts after the first piece instead of after the
+    whole reply. Fixed replies ("Yes?", "Switched on.") are synthesized once,
+    in the background at startup, and then play instantly. The main loop and
+    the reminder thread both speak, so a lock makes one wait for the other
+    instead of talking over it."""
 
-    def __init__(self, tts=None):
+    def __init__(self, tts=None, phrases=config.TTS_CACHED_PHRASES):
         self._tts = tts or make_tts()
         self._lock = threading.Lock()
         self._speaking = False
@@ -35,6 +38,13 @@ class Speaker:
         # Two files, so one can play while the next sentence is written.
         base = config.TTS_WAV[:-4] if config.TTS_WAV.endswith(".wav") else config.TTS_WAV
         self._wavs = (f"{base}_a.wav", f"{base}_b.wav")
+        self._cache_dir = f"{base}_cache"
+        self._cache = {}        # piece of text -> its ready-made WAV file
+        self.prewarm_thread = None
+        if phrases:
+            self.prewarm_thread = threading.Thread(target=self._prewarm, args=(phrases,), name="tts-cache",
+                                                   daemon=True)
+            self.prewarm_thread.start()
 
     def say(self, text):
         if self._muted:
@@ -49,13 +59,13 @@ class Speaker:
                 return
             self._speaking = True
             try:
-                self._synthesize(chunks[0], self._wavs[0])
+                ready = self._prepare(chunks[0], self._wavs[0])
                 for i in range(len(chunks)):
                     if self._muted:
                         break
-                    self._player = subprocess.Popen(["pw-play", self._wavs[i % 2]])
+                    self._player = subprocess.Popen(["pw-play", ready])
                     if i + 1 < len(chunks):
-                        self._synthesize(chunks[i + 1], self._wavs[(i + 1) % 2])  # while this one plays
+                        ready = self._prepare(chunks[i + 1], self._wavs[(i + 1) % 2])  # while this one plays
                     self._player.wait()
             except FileNotFoundError as e:
                 log.error("Speech error: %s is not installed.", e.filename)
@@ -68,6 +78,31 @@ class Speaker:
                 self._player = None
                 self._speaking = False
                 self._last_spoke = time.monotonic()
+
+    def _prepare(self, text, wav_path):
+        """Path of a WAV saying `text`: the cached one, or a new one at wav_path."""
+        cached = self._cache.get(text)
+        if cached:
+            return cached
+        self._synthesize(text, wav_path)
+        return wav_path
+
+    def _prewarm(self, phrases):
+        """Synthesizes the fixed replies into the cache, one at a time, letting
+        real speech go first."""
+        try:
+            os.makedirs(self._cache_dir, exist_ok=True)
+            for phrase in phrases:
+                for chunk in speech_chunks(clean_for_speech(phrase)):
+                    with self._lock:
+                        if chunk in self._cache:
+                            continue
+                        path = os.path.join(self._cache_dir, f"{len(self._cache)}.wav")
+                        self._tts.synthesize(chunk, path)
+                        self._cache[chunk] = path
+            log.info("%d fixed replies ready", len(self._cache))
+        except Exception as e:
+            log.warning("Could not prepare fixed replies (%s); they will be synthesized when said", e)
 
     def _synthesize(self, text, wav_path):
         try:
