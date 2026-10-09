@@ -76,6 +76,23 @@ Each LED: GPIO pin → resistor → long leg (+); short leg (−) → GND (physi
 pin 14). Pins are in `config.py` (`LED_*_PIN`, `None` = not fitted);
 `--no-leds` turns them off.
 
+## OLED screen
+
+A 128x64 I2C OLED shows a rabbit face while Rabbit is on: eyes open when
+awake, closed with "zZ" when asleep, blank when switched off.
+
+| OLED pin | Pi pin |
+|---|---|
+| GND | GND (physical pin 6) |
+| VCC | 3.3 V (physical pin 1) |
+| SCL | GPIO3 / SCL (physical pin 5) |
+| SDA | GPIO2 / SDA (physical pin 3) |
+
+Setup once: `sudo raspi-config` -> Interface Options -> I2C -> Yes, reboot,
+then `pip install luma.oled`. `i2cdetect -y 1` should show `3c` (or `3d`; set
+`OLED_ADDRESS`). A 1.3" screen is usually an SH1106: `OLED_DRIVER = "sh1106"`.
+Preview the faces without a screen: `python display.py`. `--no-oled` skips it.
+
 ## Tests
 
 ```bash

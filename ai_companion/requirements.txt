@@ -9,4 +9,5 @@ kokoro-onnx
 piper-tts
 gpiozero
 lgpio
+luma.oled
 pytest

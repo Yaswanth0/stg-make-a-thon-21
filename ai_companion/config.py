@@ -21,6 +21,12 @@ LED_POWER_PIN = 22           # red: on while Rabbit is on      (physical pin 15)
 LED_THINKING_PIN = 23        # white: thinking                 (physical pin 16)
 LED_INTERNET_PIN = 24        # yellow: Researcher on internet  (physical pin 18)
 
+# ---------------------------------------------------------------- OLED screen
+# 128x64 I2C OLED showing a rabbit face while Rabbit is on. Enable I2C once:
+# sudo raspi-config -> Interface Options -> I2C. Find the address: i2cdetect -y 1
+OLED_DRIVER = "ssd1306"      # "ssd1306" (0.96 inch, most common), "sh1106" (1.3 inch); None = no screen
+OLED_ADDRESS = 0x3C          # most modules; some use 0x3D
+
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"
 # Piper: natural female voice, fast on the Pi 5. Kokoro sounds more human but

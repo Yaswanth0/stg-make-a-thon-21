@@ -28,8 +28,10 @@ import time
 from enum import Enum
 
 import config
+import display
 import leds
 from db import Database
+from display import open_display
 from leds import open_leds
 from switch import open_switch
 
@@ -70,8 +72,13 @@ def is_sleep_command(words):
 
 # ---------------------------------------------------------------- state machine
 def is_on(state):
-    """Red LED: lit while Rabbit is on (asleep or awake)."""
+    """Red LED and OLED face: shown while Rabbit is on (asleep or awake)."""
     return state in (State.SLEEP, State.RUNNING)
+
+
+def show_state(state):
+    leds.status.power(is_on(state))
+    display.screen.show(is_on(state), awake=state is State.RUNNING)
 
 
 class Companion:
@@ -84,12 +91,12 @@ class Companion:
         self.state = state
         self.last_activity = time.monotonic()
         log.info("--- State: %s ---", state.value.upper())
-        leds.status.power(is_on(state))
+        show_state(state)
 
     def set_state(self, new_state):
         log.info("--- State: %s ---", new_state.value.upper())
         self.state = new_state
-        leds.status.power(is_on(new_state))
+        show_state(new_state)
 
     def switch_off(self):
         """Rocker switch turned OFF: SLEEP or RUNNING -> OFF."""
@@ -361,6 +368,7 @@ def main(argv=None):
     parser.add_argument("--speak", action="store_true", help="with --text: also speak replies")
     parser.add_argument("--no-switch", action="store_true", help="ignore the rocker switch")
     parser.add_argument("--no-leds", action="store_true", help="don't use the status LEDs")
+    parser.add_argument("--no-oled", action="store_true", help="don't use the OLED screen")
     parser.add_argument("--debug", action="store_true", help="more detailed logs")
     args = parser.parse_args(argv)
 
@@ -376,6 +384,7 @@ def main(argv=None):
 
     control = SwitchControl(open_switch(enabled=not args.no_switch))
     leds.status = open_leds(enabled=not args.no_leds)
+    display.screen = open_display(enabled=not args.no_oled)
     db = Database(config.DB_FILE)
     llm, llm_ready = load_llm()
     conductor = build_conductor(llm, db)
@@ -389,6 +398,7 @@ def main(argv=None):
     finally:
         control.close()
         leds.status.close()  # all LEDs off when the program ends
+        display.screen.close()  # and the screen blank
         db.close()
 
 
