@@ -25,10 +25,17 @@ class Speaker:
         self._lock = threading.Lock()
         self._speaking = False
         self._last_spoke = 0.0  # time.monotonic() when the last speech ended
+        self._muted = False
+        self._player = None     # the pw-play process while speech is playing
 
     def say(self, text):
+        if self._muted:
+            log.info("AI (muted): %s", text)
+            return
         log.info("AI: %s", text)
         with self._lock:
+            if self._muted:
+                return
             self._speaking = True
             try:
                 subprocess.run(
@@ -37,14 +44,30 @@ class Speaker:
                     text=True,
                     check=True,
                 )
-                subprocess.run(["pw-play", config.TTS_WAV], check=True)
+                self._player = subprocess.Popen(["pw-play", config.TTS_WAV])
+                self._player.wait()
             except FileNotFoundError as e:
                 log.error("Speech error: %s is not installed.", e.filename)
             except subprocess.CalledProcessError as e:
                 log.error("Speech error: %s", e)
             finally:
+                # Still playing here only if we were interrupted (switch OFF).
+                if self._player is not None and self._player.poll() is None:
+                    self._player.terminate()
+                self._player = None
                 self._speaking = False
                 self._last_spoke = time.monotonic()
+
+    def mute(self):
+        """Stops any speech playing now (from any thread) and stays silent
+        until unmute()."""
+        self._muted = True
+        player = self._player
+        if player is not None and player.poll() is None:
+            player.terminate()
+
+    def unmute(self):
+        self._muted = False
 
     def spoke_since(self, moment):
         """True if the speaker was talking at any point after `moment`."""
@@ -116,6 +139,24 @@ class VoiceInput:
         # One dummy pass over a second of silence, so the first real one is fast.
         list(model.transcribe(np.zeros(16000, dtype=np.float32), language="en")[0])
         return model
+
+    def pause(self):
+        """Turns the mic off: the audio stream stops capturing."""
+        try:
+            self._source.stream.pyaudio_stream.stop_stream()
+            log.info("Microphone off")
+        except Exception as e:
+            log.warning("Could not stop the microphone: %s", e)
+
+    def resume(self):
+        try:
+            stream = self._source.stream.pyaudio_stream
+            if stream.is_stopped():
+                stream.start_stream()
+            log.info("Microphone on")
+        except Exception as e:
+            log.warning("Could not restart the microphone: %s", e)
+        self._discard_buffered_audio()
 
     def _discard_buffered_audio(self):
         """Throws away audio captured while we were busy (mostly our own voice

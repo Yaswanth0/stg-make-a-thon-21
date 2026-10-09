@@ -23,9 +23,8 @@ Wants=pipewire.service
 WorkingDirectory=%h/ai_companion
 ExecStart=%h/ai_companion/venv/bin/python main.py
 Environment=PYTHONUNBUFFERED=1
-# "mayday" exits cleanly (code 0) and stays stopped. A crash restarts it, and
-# so does the rocker switch turning OFF (exit code 3): the new process then
-# waits, idle, until the switch is turned ON again.
+# "mayday" exits cleanly (code 0) and stays stopped; a crash restarts it.
+# The rocker switch doesn't stop the program, it only mutes it.
 Restart=on-failure
 RestartSec=5
 

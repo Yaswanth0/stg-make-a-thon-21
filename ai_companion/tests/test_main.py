@@ -57,3 +57,12 @@ def test_silence_timeout():
     companion.last_activity = time.monotonic() - config.SILENCE_TIMEOUT
     companion.check_timeout()
     assert companion.state is State.SLEEP
+
+
+def test_wake_word_while_running_is_not_sent_to_the_llm():
+    companion, said, asked = make()
+    companion.on_text("rabbit")
+    companion.on_text("rabbit")
+    assert said == ["Yes?", "Yes?"] and asked == []
+    companion.on_text("Rabbit, what time is it?")
+    assert asked == ["what time is it"]

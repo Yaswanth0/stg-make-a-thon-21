@@ -10,11 +10,9 @@ SILENCE_TIMEOUT = 120        # seconds of silence in RUNNING before going to sle
 SLEEP_COMMAND_MAX_WORDS = 4  # "sleep", "go to sleep" count; longer sentences don't
 
 # ---------------------------------------------------------------- rocker switch
-# ON = start in RUNNING, OFF = ABORTED. None = no switch fitted.
+# ON = RUNNING, OFF = mic and speaker off. None = no switch fitted.
 SWITCH_PIN = 17              # BCM numbering: GPIO17 is physical pin 11
 SWITCH_DEBOUNCE = 0.3        # seconds a change must last before it counts
-SWITCH_OFF_EXIT_CODE = 3     # non-zero, so systemd restarts us to wait for ON again
-SWITCH_OFF_FORCE_QUIT = 15   # seconds; if a clean shutdown takes longer, quit anyway
 
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"

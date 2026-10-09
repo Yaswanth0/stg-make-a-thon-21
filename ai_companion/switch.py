@@ -1,8 +1,7 @@
 """The rocker switch on a GPIO pin.
 
-ON  -> the companion starts in RUNNING (if it was off at startup, the program
-       waits for it to be switched on)
-OFF -> ABORTED: the program ends
+ON  -> RUNNING
+OFF -> OFF state: mic and speaker off until it is switched on again
 
 Wiring: one switch terminal to GPIO17 (physical pin 11), the other to any
 ground pin (e.g. physical pin 9). The pin's internal pull-up keeps it high

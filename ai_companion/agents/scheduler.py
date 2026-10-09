@@ -168,8 +168,9 @@ class Scheduler(Agent):
 
 
 class ReminderWatcher(threading.Thread):
-    """Background thread that speaks reminders when they are due, in any
-    state, including SLEEP."""
+    """Background thread that speaks reminders when they are due, in SLEEP
+    as well as RUNNING. While paused (rocker switch OFF) due reminders stay
+    pending, and are announced once it resumes."""
 
     def __init__(self, db, say, interval=config.REMINDER_CHECK_INTERVAL):
         super().__init__(name="reminders", daemon=True)
@@ -177,6 +178,13 @@ class ReminderWatcher(threading.Thread):
         self.say = say
         self.interval = interval
         self._stop_event = threading.Event()
+        self._paused = threading.Event()
+
+    def pause(self):
+        self._paused.set()
+
+    def resume(self):
+        self._paused.clear()
 
     def run(self):
         while True:
@@ -194,8 +202,12 @@ class ReminderWatcher(threading.Thread):
             self.join(timeout=30)
 
     def check(self, now=None):
+        if self._paused.is_set():
+            return
         now = now or datetime.now()
         for r in self.db.due_reminders(now):
+            if self._paused.is_set():
+                return  # switched off mid-way: leave the rest for later
             # Mark it first, so a slow or failed announcement is never repeated.
             self.db.set_reminder_status(r["id"], "done")
             if now - r["due_at"] <= timedelta(seconds=config.MISSED_REMINDER_GRACE):

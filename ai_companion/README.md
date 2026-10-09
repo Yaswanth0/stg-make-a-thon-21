@@ -42,17 +42,17 @@ Things to say: "Rabbit" (wake), "remember my locker code is 4521",
 
 | Switch | What happens |
 |---|---|
-| ON | Starts in RUNNING ("System ready."), no wake word needed |
-| OFF | "Switched off. Shutting down." → ABORTED, from any state |
-| OFF at startup | Waits, idle, until it's switched ON |
+| ON | "Switched on." → RUNNING, no wake word needed |
+| OFF | "Switched off." → OFF: mic and speaker off, nothing is heard or answered |
+| OFF at startup | Starts in OFF and stays silent until switched ON |
+
+Switching OFF cuts in immediately, even mid-answer. Reminders that come due
+while OFF are announced when it's switched back ON. The program keeps running
+the whole time; only "mayday" (while ON) ends it.
 
 Wiring: one terminal to **GPIO17 (physical pin 11)**, the other to **GND
 (physical pin 9)**. No resistor needed; the Pi's internal pull-up is used.
 Change the pin with `SWITCH_PIN` in `config.py`.
-
-"sleep", "rabbit" and "mayday" still work while the switch is ON. Under
-systemd, switching OFF exits with code 3, so the service restarts and waits
-for ON again; "mayday" exits with 0 and stays stopped.
 
 Run without the switch: `python main.py --no-switch`. Without GPIO
 (a laptop), it's skipped automatically with a warning.

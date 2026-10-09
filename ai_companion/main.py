@@ -1,12 +1,13 @@
-"""Offline voice companion with three states.
+"""Offline voice companion with four states.
 
+OFF      - rocker switch is off: mic and speaker off, nothing is heard or said
 SLEEP    - listens only for the wake word ("rabbit") or the exit word ("mayday")
 RUNNING  - listens and answers; "sleep" or 2 minutes of silence returns to SLEEP
 ABORTED  - "mayday" in any state ends the program
 
-The rocker switch (switch.py) overrides both: switching it ON starts the
-companion in RUNNING, switching it OFF goes to ABORTED from any state. If it
-is OFF when the program starts, the program waits until it is switched on.
+The rocker switch (switch.py) moves between OFF and RUNNING: switching it OFF
+goes to OFF from any state, switching it ON goes to RUNNING. Reminders that
+come due while OFF are announced once it is switched back on.
 
 Each sentence in RUNNING goes to the Conductor, which hands it to one agent:
 Scheduler (reminders), Researcher (web search), Archivist (saving facts) or
@@ -19,7 +20,6 @@ Responder (everything else).
 import _thread
 import argparse
 import logging
-import os
 import re
 import signal
 import sys
@@ -35,6 +35,7 @@ log = logging.getLogger("main")
 
 
 class State(Enum):
+    OFF = "off"
     SLEEP = "sleep"
     RUNNING = "running"
     ABORTED = "aborted"
@@ -77,16 +78,24 @@ class Companion:
         self.last_activity = time.monotonic()
         log.info("--- State: %s ---", state.value.upper())
 
-    def switch_off(self):
-        """Rocker switch turned OFF: any state -> ABORTED."""
-        if self.state is State.ABORTED:
-            return
-        self.say("Switched off. Shutting down.")
-        self.set_state(State.ABORTED)
-
     def set_state(self, new_state):
         log.info("--- State: %s ---", new_state.value.upper())
         self.state = new_state
+
+    def switch_off(self):
+        """Rocker switch turned OFF: SLEEP or RUNNING -> OFF."""
+        if self.state in (State.OFF, State.ABORTED):
+            return
+        self.say("Switched off.")
+        self.set_state(State.OFF)
+
+    def switch_on(self):
+        """Rocker switch turned ON: OFF -> RUNNING."""
+        if self.state is not State.OFF:
+            return
+        self.set_state(State.RUNNING)
+        self.say("Switched on.")
+        self.last_activity = time.monotonic()
 
     def respond(self, text):
         self.say(self.answer(text))
@@ -99,6 +108,8 @@ class Companion:
             self.set_state(State.SLEEP)
 
     def on_text(self, text):
+        if self.state is State.OFF:
+            return  # the mic is off; nothing should get here, but never answer
         log.info("Heard (%s): %s", self.state.value, text)
         words = to_words(text)
 
@@ -108,8 +119,8 @@ class Companion:
             self.set_state(State.ABORTED)
             return
 
+        woke, rest = split_on_wake_word(words)
         if self.state is State.SLEEP:
-            woke, rest = split_on_wake_word(words)
             if woke:
                 self.set_state(State.RUNNING)
                 if rest:
@@ -126,7 +137,13 @@ class Companion:
             self.set_state(State.SLEEP)
             return
 
-        self.respond(text)
+        if woke and not rest:
+            # Just "rabbit" while already awake: don't send it to the LLM.
+            self.say("Yes?")
+            self.last_activity = time.monotonic()
+            return
+
+        self.respond(" ".join(rest) if woke else text)
 
 
 # ---------------------------------------------------------------- setup
@@ -151,79 +168,105 @@ def load_llm():
     return llm, ready
 
 
-class SwitchControl:
-    """Connects the rocker switch to the main loop. The switch is read in a
-    gpiozero thread, while the main thread may be busy for several seconds
-    (listening, transcribing, waiting for the LLM). So turning it OFF
-    interrupts the main thread, the same way Ctrl+C does."""
-
-    def __init__(self, switch):
-        self.switch = switch
-        self.turned_off = threading.Event()
-        self._armed = False
-        self._force_quit_timer = None
-        if switch:
-            switch.on_change(self._changed)
-
-    def wait_until_on(self):
-        """If the switch is OFF, waits until it is switched ON. From then on,
-        switching it OFF ends the program."""
-        if self.switch and not self.switch.is_on():
-            log.info("Switch is OFF. Waiting for it to be switched ON...")
-            self.switch.wait_until_on()
-        self._armed = True
-
-    def start_state(self, default):
-        """With a switch, the companion starts awake: it was just switched ON."""
-        return State.RUNNING if self.switch else default
-
-    def _changed(self, is_on):
-        if is_on or not self._armed or self.turned_off.is_set():
-            return
-        self.turned_off.set()
-        interrupt_main_thread()
-        # Last resort, if the main thread is stuck somewhere it can't be interrupted.
-        self._force_quit_timer = threading.Timer(config.SWITCH_OFF_FORCE_QUIT, self._force_quit)
-        self._force_quit_timer.daemon = True
-        self._force_quit_timer.start()
-
-    @staticmethod
-    def _force_quit():
-        log.error("Shutdown took too long; quitting now")
-        os._exit(config.SWITCH_OFF_EXIT_CODE)
-
-    def close(self):
-        if self._force_quit_timer:
-            self._force_quit_timer.cancel()
-        if self.switch:
-            self.switch.close()
-
-
+# ---------------------------------------------------------------- rocker switch
 def interrupt_main_thread():
     """Raises KeyboardInterrupt in the main thread. On Linux a real SIGINT is
     sent to that thread, which also wakes it from a blocking call (reading
-    the mic, waiting for Ollama). Elsewhere it takes effect once that call
-    returns."""
+    the mic, waiting for Ollama, playing speech). Elsewhere it takes effect
+    once that call returns."""
     if hasattr(signal, "pthread_kill"):
         signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
     else:
         _thread.interrupt_main()
 
 
-def run_loop(companion, control, next_text):
-    """Feeds sentences from `next_text()` to the companion until ABORTED."""
-    while companion.state is not State.ABORTED:
+class SwitchControl:
+    """Connects the rocker switch to the main loop. The switch is read in a
+    gpiozero thread, while the main thread may be busy for several seconds
+    (listening, transcribing, waiting for the LLM, speaking). So turning it
+    OFF interrupts the main thread, the same way Ctrl+C does, and the main
+    loop turns that into the OFF state."""
+
+    def __init__(self, switch):
+        self.switch = switch
+        self.turned_off = threading.Event()  # set = an OFF interrupt was sent
+        self._armed = False
+        if switch:
+            switch.on_change(self._changed)
+
+    def is_on(self):
+        return self.switch is None or self.switch.is_on()
+
+    def start_state(self, default):
+        """OFF if the switch is off, RUNNING if on, `default` without a switch."""
+        if self.switch is None:
+            return default
+        return State.RUNNING if self.switch.is_on() else State.OFF
+
+    def arm(self):
+        """From now on, switching OFF interrupts the main thread."""
+        self._armed = True
+
+    def wait_until_on(self):
+        """Blocks while the switch is OFF, then allows the next OFF interrupt."""
+        if self.switch:
+            self.switch.wait_until_on()
+        self.turned_off.clear()
+
+    def _changed(self, is_on):
+        if is_on or not self._armed or self.turned_off.is_set():
+            return  # ON is picked up by wait_until_on()
+        self.turned_off.set()
+        interrupt_main_thread()
+
+    def close(self):
+        self._armed = False
+        if self.switch:
+            self.switch.close()
+
+
+def run_loop(companion, control, next_text, pause=lambda: None, resume=lambda: None):
+    """Feeds sentences from `next_text()` to the companion until ABORTED.
+    `pause` turns the mic and speaker off when the switch goes OFF; `resume`
+    turns them back on."""
+    control.arm()
+    if not control.is_on() and companion.state is not State.OFF:
+        companion.set_state(State.OFF)  # switched off while the models loaded
+
+    # The OFF interrupt can arrive at any line, so the whole loop is inside
+    # the try; after handling it, the loop simply starts again.
+    while True:
         try:
-            if control.turned_off.is_set():
-                companion.switch_off()
-                continue
-            text = next_text()
-            if text:
-                companion.on_text(text)
+            while True:
+                if companion.state is State.ABORTED:
+                    return
+                if companion.state is State.OFF:
+                    pause()
+                    control.wait_until_on()
+                    if not control.is_on():
+                        continue  # flicked off again straight away
+                    resume()
+                    companion.switch_on()
+                    continue
+                text = next_text()
+                if text:
+                    companion.on_text(text)
         except KeyboardInterrupt:
             if not control.turned_off.is_set():
                 raise  # a real Ctrl+C
             companion.switch_off()
+
+
+# ---------------------------------------------------------------- modes
+def flush_typed_input():
+    """Throws away anything typed while switched off."""
+    try:
+        import termios
+
+        if sys.stdin.isatty():
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except (ImportError, OSError):
+        pass
 
 
 def run_text(conductor, db, control, speak):
@@ -231,11 +274,13 @@ def run_text(conductor, db, control, speak):
     from agents import ReminderWatcher
     from audio import Speaker, print_say
 
-    say = Speaker().say if speak else print_say
-    control.wait_until_on()
+    speaker = Speaker() if speak else None
+    say = speaker.say if speaker else print_say
     watcher = ReminderWatcher(db, say)
+    companion = Companion(conductor.handle, say, state=control.start_state(State.RUNNING))
+    if companion.state is State.OFF:
+        watcher.pause()
     watcher.start()
-    companion = Companion(conductor.handle, say, state=State.RUNNING)
     print("Type to talk. 'sleep', 'rabbit' and 'mayday' work as in voice mode. Ctrl+D quits.", flush=True)
 
     def next_text():
@@ -245,8 +290,20 @@ def run_text(conductor, db, control, speak):
             companion.set_state(State.ABORTED)
             return None
 
+    def pause():
+        watcher.pause()
+        if speaker:
+            speaker.mute()
+        print("(Switched off: typing is ignored until the switch is turned ON.)", flush=True)
+
+    def resume():
+        flush_typed_input()
+        if speaker:
+            speaker.unmute()
+        watcher.resume()
+
     try:
-        run_loop(companion, control, next_text)
+        run_loop(companion, control, next_text, pause, resume)
     finally:
         watcher.stop()
 
@@ -257,27 +314,37 @@ def run_voice(conductor, db, control, llm_ready):
 
     speaker = Speaker()
     with VoiceInput(speaker) as voice:
-        control.wait_until_on()
-        speaker.say("System ready." if llm_ready else "System ready, but the language model did not load.")
         watcher = ReminderWatcher(db, speaker.say)
-        watcher.start()
         companion = Companion(conductor.handle, speaker.say, state=control.start_state(State.SLEEP))
+        if companion.state is State.OFF:
+            watcher.pause()
+        else:
+            speaker.say("System ready." if llm_ready else "System ready, but the language model did not load.")
+        watcher.start()
 
         def next_text():
             companion.check_timeout()
-            if companion.state is State.ABORTED:
+            if companion.state not in (State.SLEEP, State.RUNNING):
                 return None
             return voice.listen(5 if companion.state is State.SLEEP else 15)
 
+        def pause():
+            watcher.pause()
+            speaker.mute()
+            voice.pause()
+
+        def resume():
+            voice.resume()
+            speaker.unmute()
+            watcher.resume()
+
         try:
-            run_loop(companion, control, next_text)
+            run_loop(companion, control, next_text, pause, resume)
         finally:
             watcher.stop()
 
 
 def main(argv=None):
-    """Returns the exit code: 0 for "mayday" or Ctrl+C, SWITCH_OFF_EXIT_CODE
-    when the rocker switch was turned off."""
     parser = argparse.ArgumentParser(description="Offline voice companion")
     parser.add_argument("--text", action="store_true", help="type instead of speaking")
     parser.add_argument("--speak", action="store_true", help="with --text: also speak replies")
@@ -309,8 +376,7 @@ def main(argv=None):
     finally:
         control.close()
         db.close()
-    return config.SWITCH_OFF_EXIT_CODE if control.turned_off.is_set() else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
