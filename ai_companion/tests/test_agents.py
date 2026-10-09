@@ -186,3 +186,13 @@ def test_relevant_text_prefers_lines_with_numbers():
 def test_relevant_text_keeps_inline_numbers_in_their_sentence():
     html = "<div><p>Today's gold price stands at <span>Rs 14,957</span> per gram.</p><div>Gold<br>Silver</div></div>"
     assert relevant_text(html, "gold price", max_chars=500) == "Today's gold price stands at Rs 14,957 per gram. | Gold"
+
+
+def test_every_agent_knows_its_name_is_rabbit(db):
+    import prompts
+
+    for prompt in (prompts.RESPONDER, prompts.CONDUCTOR, prompts.SCHEDULER, prompts.ARCHIVIST, prompts.RESEARCHER):
+        assert "Rabbit" in prompt
+    llm = FakeLLM(text_reply="I'm Rabbit, your voice assistant.")
+    Responder(llm, db).handle("what's your name?")
+    assert "You are Rabbit" in llm.calls[0]["system"]

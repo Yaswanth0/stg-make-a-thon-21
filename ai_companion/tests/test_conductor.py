@@ -31,9 +31,9 @@ class Echo(Agent):
         return self.followup
 
 
-def make_conductor(db, llm):
+def make_conductor(db, llm, use_llm=True):
     agents = {label: Echo(label) for label in ("schedule", "search", "remember", "answer")}
-    return Conductor(llm, db, agents), agents
+    return Conductor(llm, db, agents, use_llm=use_llm), agents
 
 
 def test_llm_picks_agent_and_turn_is_stored(db):
@@ -68,3 +68,35 @@ def test_agent_crash_gives_spoken_error(db):
     conductor, agents = make_conductor(db, FakeLLM([{"label": "answer"}]))
     agents["answer"].handle = lambda text: 1 / 0
     assert "went wrong" in conductor.handle("hello")
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Check today's gold price", "search"),
+    ("what is the price of a raspberry pi 5", "search"),
+    ("what's the score in the india match", "search"),
+    ("tell me the latest on the elections", "search"),
+    ("what's the temperature in Hyderabad", "search"),
+    ("wake me up at 7", "schedule"),
+    ("set a timer for 10 minutes", "schedule"),
+    ("remind me to check the price of gold", "schedule"),   # reminders win over search words
+    ("remember the price of my bike was 90000", "remember"),
+    ("check my reminders", "schedule"),
+])
+def test_new_shortcuts(text, expected):
+    assert shortcut_label(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "check if my locker code is saved", "what time is it right now", "what's today's date",
+    "tell me a joke", "check my locker code",
+])
+def test_shortcuts_leave_ordinary_questions_alone(text):
+    assert shortcut_label(text) in (None, "answer")
+
+
+def test_without_llm_routing_unmatched_goes_to_responder(db):
+    llm = FakeLLM([{"label": "search"}])
+    conductor, _ = make_conductor(db, llm, use_llm=False)
+    assert conductor.classify("what is the capital of France") == ("answer", "default")
+    assert conductor.classify("search for pi 5") == ("search", "shortcut")
+    assert llm.calls == []

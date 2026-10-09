@@ -16,17 +16,14 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import config
+import prompts
 from agents.base import Agent
 from db import keywords
+from grounding import keep_supported
 
 log = logging.getLogger("researcher")
 
-SYSTEM_PROMPT = """You answer questions using web results that were fetched from the internet a moment ago, so they are current.
-Today is {today}.
-Answer in at most two short sentences and give the actual figures found in the results (prices, scores, dates, names).
-Use only the results. If they really don't contain the answer, say you couldn't find it.
-Never say that you can't access real-time information: these results are real-time.
-Your reply is spoken aloud: no lists, no links, no markdown."""
+SYSTEM_PROMPT = prompts.RESEARCHER
 
 LEADING = re.compile(
     r"^(please |can you |could you )?(search( the (web|internet))?( for)?|google|look up|find out"
@@ -251,6 +248,14 @@ class Researcher(Agent):
                     log.info("Page %d unreadable: %s", n, e)
             sources.append(f"[{n}] {title}\n{body}" + (f"\nFrom the page: {page}" if page else ""))
 
-        prompt = SYSTEM_PROMPT.format(today=datetime.now().strftime("%A, %B %d, %Y"))
-        reply = self.llm.chat(prompt, f"Question: {query}\n\nWeb results:\n\n" + "\n\n".join(sources))
-        return reply or "I found some results, but my language model is not responding."
+        today = datetime.now().strftime("%A, %B %d, %Y")
+        reply = self.llm.chat(SYSTEM_PROMPT.format(today=today),
+                              f"Question: {query}\n\nWeb results:\n\n" + "\n\n".join(sources),
+                              temperature=config.RESEARCHER_TEMPERATURE)
+        if not reply:
+            return "I found some results, but my language model is not responding."
+        # Drop any sentence stating a number the results don't contain.
+        grounded, _ = keep_supported(reply, query, today, *sources)
+        if not grounded:
+            return f"I found results about {query}, but I couldn't get a reliable answer from them."
+        return grounded

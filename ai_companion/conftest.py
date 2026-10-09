@@ -15,7 +15,7 @@ class FakeLLM:
         self.calls = []
 
     def chat(self, system, user, history=(), **options):
-        self.calls.append({"system": system, "user": user, "history": list(history)})
+        self.calls.append({"system": system, "user": user, "history": list(history), **options})
         return self.text_reply
 
     def chat_json(self, system, user, max_tokens=150):

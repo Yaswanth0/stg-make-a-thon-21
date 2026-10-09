@@ -9,27 +9,14 @@ import time
 from datetime import datetime, timedelta
 
 import config
+import prompts
 from agents.base import Agent, to_second_person
 from db import keywords
 from timeparse import find_when, parse_when, spoken_time
 
 log = logging.getLogger("scheduler")
 
-SYSTEM_PROMPT = """You manage reminders for a voice assistant. Read the user's sentence and reply with JSON only:
-{"action": "create" or "list" or "cancel", "task": "...", "when": "..."}
-
-create: task = what to do, short, starting with a verb, without "remind me to".
-        when = the time words exactly as the user said them, or "" if they gave no time.
-list:   the user asks which reminders they have. task and when are "".
-cancel: task = which reminder to cancel, or "all". when is "".
-
-Examples:
-"remind me to call mom tomorrow at 6 pm" -> {"action": "create", "task": "call mom", "when": "tomorrow at 6 pm"}
-"in 10 minutes remind me to check the oven" -> {"action": "create", "task": "check the oven", "when": "in 10 minutes"}
-"set a reminder to take my medicine" -> {"action": "create", "task": "take my medicine", "when": ""}
-"what are my reminders" -> {"action": "list", "task": "", "when": ""}
-"cancel the reminder about the dentist" -> {"action": "cancel", "task": "dentist", "when": ""}
-"delete all my reminders" -> {"action": "cancel", "task": "all", "when": ""}"""
+SYSTEM_PROMPT = prompts.SCHEDULER
 
 ACTIONS = ("create", "list", "cancel")
 NEVER_MIND = re.compile(r"\b(never ?mind|forget it|cancel|no|stop|nothing)\b")

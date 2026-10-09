@@ -1,24 +1,74 @@
 """Responder: answers questions using recent conversation, saved facts and
-upcoming reminders as context."""
+upcoming reminders as context.
+
+Questions about the user ("what's my locker code?") are answered only from
+saved facts: with no matching fact the reply says so without asking the LLM,
+and an answer with a number the facts don't contain is replaced by the facts
+themselves.
+"""
 
 import re
 from datetime import datetime
 
 import config
+import prompts
 from agents.base import Agent
+from grounding import keep_supported
 from timeparse import spoken_time
 
 # Questions like "what do you know about me?" get all recent facts, not just
 # the ones that share a keyword.
 ABOUT_ME = re.compile(r"\b(about me|do you (know|remember)|have i told you|what have i)\b")
 
+# Questions whose answer can only come from a saved fact.
+PERSONAL = re.compile(
+    r"\b(what|where|when|which|who)('s| is| are| was| were) my\b"
+    r"|\bwhere (did|do|have) i (park|put|leave|left|keep|store|save)\b"
+    r"|\bdo you (know|remember) (my|where i|what my|when my)\b"
+)
+# ...unless they are about plans, which the reminders answer.
+ABOUT_PLANS = re.compile(r"\b(remind\w*|schedule|plans?|appointments?|agenda|meetings?|today|tomorrow)\b")
+
+
+def is_personal(text):
+    t = text.lower()
+    return bool(PERSONAL.search(t)) and not ABOUT_PLANS.search(t)
+
+
+def fact_to_speech(fact):
+    """"The user's locker code is 4521." -> "Your locker code is 4521."."""
+    for old, new in (("The user's", "Your"), ("the user's", "your"), ("The user is", "You are"),
+                     ("The user has", "You have"), ("The user was", "You were"), ("The user", "You"),
+                     ("the user", "you")):
+        fact = fact.replace(old, new)
+    return fact
+
 
 class Responder(Agent):
     name = "responder"
 
     def handle(self, text):
-        reply = self.llm.chat(self.system_prompt(text), text, history=self.history())
-        return reply or "Sorry, my language model is not responding."
+        personal = is_personal(text)
+        facts = self.facts_for(text)
+        if personal and not facts:
+            return (f"I don't have that saved, so I don't know. You can tell me by saying: "
+                    f"{config.ASSISTANT_NAME}, remember, and then the fact.")
+
+        reply = self.llm.chat(self.system_prompt(text, facts), text, history=self.history(),
+                              temperature=config.RESPONDER_TEMPERATURE)
+        if not reply:
+            return "Sorry, my language model is not responding."
+        if personal:
+            reply, dropped = keep_supported(reply, text, *facts)
+            if dropped and not reply:
+                return "Here's what I have saved: " + " ".join(fact_to_speech(f) for f in facts)
+        return reply
+
+    def facts_for(self, text):
+        facts = self.db.search_memories(text, config.MEMORY_MATCHES)
+        if ABOUT_ME.search(text.lower()):
+            facts = list(dict.fromkeys(facts + self.db.recent_memories(8)))
+        return facts
 
     def history(self):
         messages = []
@@ -28,22 +78,21 @@ class Responder(Agent):
             messages.append({"role": "assistant", "content": turn["reply"]})
         return messages
 
-    def system_prompt(self, text):
+    def system_prompt(self, text, facts=None):
         now = datetime.now()
+        if facts is None:
+            facts = self.facts_for(text)
         parts = [
-            config.SYSTEM_PROMPT,
-            "Your replies are spoken aloud: plain sentences, no lists, no markdown, no emoji.",
+            prompts.RESPONDER,
             f"It is now {now:%A}, {now:%B} {now.day}, {now:%Y}, {spoken_time(now, now, clock_only=True)}.",
         ]
-
-        facts = self.db.search_memories(text, config.MEMORY_MATCHES)
-        if ABOUT_ME.search(text.lower()):
-            facts = list(dict.fromkeys(facts + self.db.recent_memories(8)))
         if facts:
             parts.append(
-                "Facts the user asked you to remember (use them if relevant, never invent others):\n"
-                + "\n".join(f"- {f}" for f in facts)
+                "Facts the user asked you to remember. These are the ONLY things you know about the user; "
+                "copy names and numbers exactly:\n" + "\n".join(f"- {f}" for f in facts)
             )
+        else:
+            parts.append("You have no saved facts about the user that match this question.")
 
         reminders = self.db.pending_reminders(limit=3)
         if reminders:
