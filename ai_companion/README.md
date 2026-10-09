@@ -78,8 +78,20 @@ pin 14). Pins are in `config.py` (`LED_*_PIN`, `None` = not fitted);
 
 ## OLED screen
 
-A 128x64 I2C OLED shows a rabbit face while Rabbit is on: eyes open when
-awake, closed with "zZ" when asleep, blank when switched off.
+A 128x64 I2C OLED shows an animated rabbit face while Rabbit is on:
+
+| Rabbit is... | Face |
+|---|---|
+| awake | eyes open, blinks now and then |
+| asleep | eyes closed, z's drifting up |
+| hearing you | wide eyes, sound waves by the ears |
+| thinking | eyes up, thought bubble filling with dots |
+| searching online | eyes scanning, magnifying glass sweeping |
+| speaking | mouth opening and closing |
+| saving a fact | ^ ^ eyes and a heart |
+| announcing a reminder | wide eyes, flashing "!" |
+| unable to make out speech | raised eyebrow and "?" |
+| switched off | blank |
 
 | OLED pin | Pi pin |
 |---|---|
@@ -91,7 +103,7 @@ awake, closed with "zZ" when asleep, blank when switched off.
 Setup once: `sudo raspi-config` -> Interface Options -> I2C -> Yes, reboot,
 then `pip install luma.oled`. `i2cdetect -y 1` should show `3c` (or `3d`; set
 `OLED_ADDRESS`). A 1.3" screen is usually an SH1106: `OLED_DRIVER = "sh1106"`.
-Preview the faces without a screen: `python display.py`. `--no-oled` skips it.
+Preview every face without a screen: `python display.py` (saves `rabbit_faces.png`). `--no-oled` skips it.
 
 ## Tests
 

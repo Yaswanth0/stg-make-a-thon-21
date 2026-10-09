@@ -114,7 +114,8 @@ class Companion:
         self.last_activity = time.monotonic()
 
     def respond(self, text):
-        with leds.status.thinking():  # white LED while the reply is worked out
+        # White LED and the thinking face while the reply is worked out.
+        with leds.status.thinking(), display.screen.mood("thinking"):
             reply = self.answer(text)
         self.say(reply)
         self.last_activity = time.monotonic()

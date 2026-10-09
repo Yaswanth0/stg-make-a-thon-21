@@ -19,6 +19,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import config
+import display
 import leds
 import prompts
 from agents.base import Agent
@@ -279,7 +280,8 @@ class Researcher(Agent):
         self._weather = weather
 
     def handle(self, text):
-        with leds.status.internet():  # yellow LED while using the internet
+        # Yellow LED and the searching face while using the internet.
+        with leds.status.internet(), display.screen.mood("searching"):
             if not self._online():
                 return OFFLINE_REPLY
             if WEATHER.search(text):

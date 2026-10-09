@@ -13,6 +13,7 @@ import time
 from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
 
 import config
+import display
 from tts import EspeakTTS, clean_for_speech, make_tts, speech_chunks
 
 log = logging.getLogger("audio")
@@ -61,13 +62,14 @@ class Speaker:
             self._speaking = True
             try:
                 ready = self._prepare(chunks[0], self._wavs[0])
-                for i in range(len(chunks)):
-                    if self._muted:
-                        break
-                    self._player = subprocess.Popen(["pw-play", ready])
-                    if i + 1 < len(chunks):
-                        ready = self._prepare(chunks[i + 1], self._wavs[(i + 1) % 2])  # while this one plays
-                    self._player.wait()
+                with display.screen.mood("speaking"):  # the rabbit's mouth moves
+                    for i in range(len(chunks)):
+                        if self._muted:
+                            break
+                        self._player = subprocess.Popen(["pw-play", ready])
+                        if i + 1 < len(chunks):
+                            ready = self._prepare(chunks[i + 1], self._wavs[(i + 1) % 2])  # while this one plays
+                        self._player.wait()
             except FileNotFoundError as e:
                 log.error("Speech error: %s is not installed.", e.filename)
             except subprocess.CalledProcessError as e:
@@ -246,24 +248,29 @@ class VoiceInput:
         # Whisper expects 16 kHz float samples; the mic delivers 48 kHz 16-bit.
         raw = audio.get_raw_data(convert_rate=16000, convert_width=2)
         samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-        segments, _ = self._whisper.transcribe(
-            samples,
-            language="en",
-            beam_size=config.WHISPER_BEAM_SIZE,
-            vad_filter=True,
-            initial_prompt=config.WHISPER_PROMPT,  # words it should expect to hear
-        )
-        kept = []
-        for s in segments:
-            if is_confident(s):
-                kept.append(s.text.strip())
-            else:
-                log.info("Ignored unclear speech (logprob %.2f, no-speech %.2f): %s",
-                         s.avg_logprob, s.no_speech_prob, s.text.strip())
+        kept, unclear = [], []
+        with display.screen.mood("hearing"):  # ears up while it works out what was said
+            segments, _ = self._whisper.transcribe(
+                samples,
+                language="en",
+                beam_size=config.WHISPER_BEAM_SIZE,
+                vad_filter=True,
+                initial_prompt=config.WHISPER_PROMPT,  # words it should expect to hear
+            )
+            for s in segments:  # transcription happens as this loop runs
+                if is_confident(s):
+                    kept.append(s.text.strip())
+                else:
+                    if s.no_speech_prob < 0.6:  # speech, just not clear (rather than noise)
+                        unclear.append(s.text.strip())
+                    log.info("Ignored unclear speech (logprob %.2f, no-speech %.2f): %s",
+                             s.avg_logprob, s.no_speech_prob, s.text.strip())
         text = " ".join(kept).strip()
         if is_repetitive(text):
             log.info("Ignored repetitive speech: %s", text)
-            return None
+            text = ""
+        if not text and (unclear or kept):
+            display.screen.flash("confused")  # someone spoke, but it couldn't make it out
         return text or None
 
 

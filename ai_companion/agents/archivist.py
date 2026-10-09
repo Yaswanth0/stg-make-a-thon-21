@@ -2,6 +2,7 @@
 
 import re
 
+import display
 import prompts
 from agents.base import Agent, to_second_person
 
@@ -33,5 +34,6 @@ class Archivist(Agent):
             # The LLM failed; store the user's own words rather than lose them.
             fact = f"The user said: {said}."
         self.db.add_memory(fact)
+        display.screen.flash("happy")  # ^ ^ and a heart on the OLED
         # Read back the user's own words, so a misheard number is caught now.
         return f"Got it. I'll remember that {to_second_person(said)}."

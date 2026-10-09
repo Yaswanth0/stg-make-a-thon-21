@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 
 import config
+import display
 import prompts
 from agents.base import Agent, to_second_person
 from db import keywords
@@ -203,4 +204,5 @@ class ReminderWatcher(threading.Thread):
                 message = f"Missed reminder from {spoken_time(r['due_at'], now)}: {r['task']}."
             log.info("Announcing reminder %d", r["id"])
             self.db.add_turn("", message, "scheduler")
-            self.say(message)
+            with display.screen.mood("alert"):  # wide eyes and a flashing "!"
+                self.say(message)
