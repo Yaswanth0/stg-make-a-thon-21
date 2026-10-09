@@ -11,6 +11,7 @@ is doing.
     alert       wide eyes and a flashing "!" (a reminder is going off)
     confused    one eyebrow up and a "?" (speech it couldn't make out)
     music       headphones, eyes closed enjoying it, notes floating (a song is playing)
+    game        the tic-tac-toe board instead of the face
     off         blank screen
 
 The program says what it is doing with `with screen.mood("thinking"):` or
@@ -37,7 +38,7 @@ FRAME_SECONDS = 0.16
 
 # Most important first: the face shows the first active one. "speaking" only
 # moves the mouth, so it combines with whichever face is showing.
-PRIORITY = ["alert", "happy", "confused", "searching", "thinking", "hearing", "music"]
+PRIORITY = ["alert", "game", "happy", "confused", "searching", "thinking", "hearing", "music"]
 # While asleep the mic still listens for "Rabbit"; the face shouldn't react to
 # every noise, only to a reminder going off.
 ASLEEP_MOODS = {"alert", "speaking"}
@@ -158,6 +159,35 @@ def _extras(draw, mood, frame):
         draw.text((CX + 48, 10), "?", fill=WHITE)
 
 
+def draw_board(draw, cells):
+    """Tic-tac-toe: a 3x3 grid, X and O drawn, free cells show their number."""
+    size, left, top = 20, CX - 30, 2
+    for i in (1, 2):
+        draw.line((left + i * size, top, left + i * size, top + 3 * size), fill=WHITE)
+        draw.line((left, top + i * size, left + 3 * size, top + i * size), fill=WHITE)
+    for n, mark in enumerate(cells):
+        x, y = left + (n % 3) * size, top + (n // 3) * size
+        if mark == "X":
+            draw.line((x + 5, y + 5, x + 15, y + 15), fill=WHITE, width=2)
+            draw.line((x + 15, y + 5, x + 5, y + 15), fill=WHITE, width=2)
+        elif mark == "O":
+            draw.ellipse((x + 4, y + 4, x + 16, y + 16), outline=WHITE, width=2)
+        else:
+            draw.text((x + 8, y + 5), str(n + 1), fill=WHITE)
+    draw.text((2, 24), "You", fill=WHITE)
+    draw.text((8, 36), "X", fill=WHITE)
+    draw.text((WIDTH - 22, 24), "Me", fill=WHITE)
+    draw.text((WIDTH - 16, 36), "O", fill=WHITE)
+
+
+def board_image(cells):
+    from PIL import Image, ImageDraw
+
+    image = Image.new("1", (WIDTH, HEIGHT), 0)
+    draw_board(ImageDraw.Draw(image), cells)
+    return image
+
+
 def rabbit_image(mood="awake", speaking=False, t=0.0):
     """The face as a 1-bit PIL image (also handy for previewing it)."""
     from PIL import Image, ImageDraw
@@ -176,6 +206,7 @@ class RabbitDisplay:
         self._active = {}             # mood -> how many `with mood()` blocks hold it
         self._until = {}              # flashed mood -> time.monotonic() when it ends
         self._held = set()            # moods switched on until switched off ("music")
+        self._board = None            # tic-tac-toe cells while a game is on
         self._drawn = None            # bytes of the last frame sent, to skip repeats
         self._stop = threading.Event()
         self._thread = None
@@ -202,6 +233,13 @@ class RabbitDisplay:
             with self._lock:
                 self._active[name] -= 1
             self.refresh()
+
+    def board(self, cells):
+        """Shows a tic-tac-toe board (9 cells: "X", "O" or None); None = back to the face."""
+        with self._lock:
+            self._board = list(cells) if cells else None
+            (self._held.add if cells else self._held.discard)("game")
+        self.refresh()
 
     def hold(self, name, on):
         """Shows `name` until it is switched off (a song playing)."""
@@ -242,7 +280,10 @@ class RabbitDisplay:
                     self._device.hide()
                     self._drawn = "off"
                 return
-            image = rabbit_image(mood, speaking, time.monotonic())
+            if mood == "game":
+                image = board_image(self._board or [None] * 9)
+            else:
+                image = rabbit_image(mood, speaking, time.monotonic())
             data = image.tobytes()
             if data != self._drawn:
                 self._device.display(image.convert(self._device.mode))

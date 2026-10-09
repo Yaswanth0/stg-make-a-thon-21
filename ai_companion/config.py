@@ -111,6 +111,10 @@ MUSIC_VOLUME = 70            # percent
 MUSIC_DUCK_VOLUME = 15       # while Rabbit speaks, and after "Rabbit" while you speak
 MUSIC_LISTEN_SECONDS = 8     # how long the music stays quiet after "Rabbit"
 
+# ---------------------------------------------------------------- tic-tac-toe
+GAME_LEVEL = "medium"        # "easy" (random), "medium" (beatable), "hard" (never loses)
+GAME_IDLE_TIMEOUT = 180      # seconds without a move before an unfinished game is dropped
+
 # ---------------------------------------------------------------- research
 SEARCH_RESULTS = 3
 SEARCH_TIMEOUT = 10          # seconds

@@ -73,6 +73,20 @@ a few seconds after you say "Rabbit"; lyrics are ignored unless you say
 "Rabbit" first. Switching OFF stops the music. Needs `sudo apt install mpv`.
 Songs aren't in git: copy them into `music/` on the Pi (see `music/README.md`).
 
+## Tic-tac-toe
+
+"Let's play tic-tac-toe" (or "play a game") starts a game; who goes first is
+random. You're X, Rabbit is O, cells are 1-9 left to right, top to bottom:
+
+    1 | 2 | 3
+    4 | 5 | 6
+    7 | 8 | 9
+
+Say a cell ("5", "five", "cell 7", "top left", "centre"), "where are we?" for
+the board, "restart" for a new game, or "quit". After each game Rabbit asks
+whether to play again. The OLED shows the board. Difficulty: `GAME_LEVEL` in
+`config.py` ("easy", "medium", "hard" = never loses).
+
 ## Status LEDs
 
 | LED | GPIO (physical pin) | Resistor | Lit when |
