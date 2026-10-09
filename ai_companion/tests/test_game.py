@@ -190,3 +190,75 @@ def test_reminder_about_a_game_is_still_a_reminder(db):
     agents = {n: Echo(n) for n in ("schedule", "search", "remember", "answer", "music")}
     agents["game"] = game()
     assert Conductor(FakeLLM(), db, agents, use_llm=False).handle("remind me to play a game at 6") == "schedule"
+
+
+# ---------------------------------------------------------------- "who won the last game?"
+def play_and_win(g):
+    g.handle("tic tac toe")
+    g._board = ["X", "X", None, "O", "O", None, None, None, None]
+    g.handle("3")
+
+
+def test_log_replay_who_won_the_last_game(db):
+    """From the Pi: after winning and quitting, this went to a web search."""
+    agents = {n: Echo(n) for n in ("schedule", "search", "remember", "answer", "music")}
+    agents["game"] = Game(db=db, rng=FirstPlayer(True))
+    c = Conductor(FakeLLM(), db, agents, use_llm=False)
+    c.handle("let's play tic tac toe")
+    agents["game"]._board = ["X", "X", None, "O", "O", None, None, None, None]
+    assert c.handle("3").startswith("You win!")
+    c.handle("Yes, play again.")
+    c.handle("You can quit now.")
+    assert c.handle("Who won the last game?").startswith("You won the last game, today at ")
+
+
+def test_results_survive_a_restart(db):
+    play_and_win(Game(db=db, rng=FirstPlayer(True)))
+    fresh = Game(db=db)  # Rabbit restarted
+    assert fresh.results_reply().startswith("You won the last game")
+
+
+def test_overall_score(db):
+    g = Game(db=db, rng=FirstPlayer(True))
+    play_and_win(g)
+    g.handle("yes")
+    g._board = ["O", "O", None, "X", "X", None, "X", None, None]
+    g.handle("9")  # Rabbit wins
+    g.handle("yes")
+    g._board = ["X", "O", "X", "X", "O", "O", "O", "X", None]
+    g.handle("9")  # draw
+    g.handle("no")
+    assert g.handle("what's the score so far?").endswith(
+        "Overall, you've won 1 and I've won 1, with 1 draw.")
+
+
+def test_score_mid_game_keeps_the_game_going(db):
+    g = Game(db=db, rng=FirstPlayer(True))
+    play_and_win(g)
+    g.handle("yes")
+    assert g.handle("who is winning?").endswith("Your turn.")
+    assert g.awaiting_followup()
+
+
+def test_no_games_yet(db):
+    assert Game(db=db).results_reply() == "We haven't played any games yet. Say: let's play tic-tac-toe."
+
+
+@pytest.mark.parametrize("text,ours", [
+    ("Who won the last game?", True),
+    ("how many games did I win?", True),
+    ("what's the tic tac toe score", True),
+    ("who won the last IPL game?", False),
+    ("who won the cricket match yesterday", False),
+    ("who won the election", False),
+])
+def test_results_questions(text, ours):
+    from agents.game import is_results_question
+
+    assert is_results_question(text) is ours
+
+
+def test_who_won_goes_to_search_if_we_never_played(db):
+    agents = {n: Echo(n) for n in ("schedule", "search", "remember", "answer", "music")}
+    agents["game"] = Game(db=db)
+    assert Conductor(FakeLLM(), db, agents, use_llm=False).handle("who won the last game?") == "search"

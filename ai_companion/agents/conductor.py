@@ -14,6 +14,7 @@ import config
 import music
 import prompts
 from agents.game import START as GAME_START
+from agents.game import is_results_question
 from recall import is_recall
 
 log = logging.getLogger("conductor")
@@ -129,7 +130,10 @@ class Conductor:
         if self.use_shortcuts:
             # "Remind me to play cricket" is a reminder, so reminders go first.
             label = shortcut_label(text)
-            if label != "schedule" and "game" in self.agents and GAME_START.search(text.lower()):
+            game = self.agents.get("game")
+            if game is not None and is_results_question(text) and game.has_results():
+                return "game", "shortcut"  # "who won the last game?" isn't a web search
+            if label != "schedule" and game is not None and GAME_START.search(text.lower()):
                 return "game", "shortcut"
             if label != "schedule" and "music" in self.agents and music_label(text, music.player.is_active()):
                 return "music", "shortcut"

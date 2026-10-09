@@ -21,6 +21,7 @@ sudo apt install espeak-ng portaudio19-dev
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ollama pull llama3.2:3b
+ollama pull nomic-embed-text    # meaning search over facts and history (optional)
 ```
 
 The voice is Piper with the female voice `en_US-hfc_female-medium`
@@ -44,6 +45,17 @@ Things to say: "Rabbit" (wake), "remember my locker code is 4521",
 "what's my locker code?", "remind me to call mom tomorrow at 6 pm",
 "what are my reminders?", "cancel the reminder to call mom",
 "search for the price of a Raspberry Pi 5", "sleep", "mayday" (exit).
+
+## How Rabbit finds things it was told
+
+Saved facts and past conversations are searched two ways: by keyword (SQLite
+full-text search, with synonyms) and by meaning (embeddings from
+`nomic-embed-text`, so "when do I see my physician?" finds "doctor appointment
+with Dr Rao"). Keyword matches come first. Everything is embedded in the
+background, including history saved before. The log shows each meaning
+search's scores (`Meaning search (memory): #3 0.71, ...`); raise or lower
+`EMBED_MIN_SIMILARITY` in `config.py` if it finds too much or too little.
+Without the model (or with `--no-embeddings`) search is keyword-only.
 
 ## Rocker switch
 

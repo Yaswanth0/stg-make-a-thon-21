@@ -13,6 +13,7 @@ from datetime import datetime
 
 import config
 import prompts
+import semantic
 from agents.base import Agent
 from db import parse_time
 from grounding import keep_supported
@@ -114,6 +115,12 @@ class Responder(Agent):
         turns = []
         if words:
             turns = self.db.search_conversations(words, config.RECALL_MATCHES, since, until, skip_ids=skip)
+            # Plus turns about the same thing in other words, after the keyword matches.
+            similar = [i for i, _ in semantic.index.search("turn", text, config.RECALL_MATCHES * 2)]
+            seen = {(t["created_at"], t["user_text"]) for t in turns}
+            for t in self.db.turns_by_ids(similar, since, until, skip_ids=skip):
+                if len(turns) < config.RECALL_MATCHES and (t["created_at"], t["user_text"]) not in seen:
+                    turns.append(t)
         if not turns and span:
             # "What did we talk about yesterday?": everything from then.
             turns = self.db.turns_between(since, until, config.RECALL_MATCHES * 2, skip_ids=skip)
@@ -144,6 +151,10 @@ class Responder(Agent):
 
     def facts_for(self, text):
         facts = self.db.search_memories(text, config.MEMORY_MATCHES)
+        # Facts with the same meaning in other words ("where's my car?" ->
+        # "The user parked on level 3"); keyword matches stay first.
+        similar = [ref_id for ref_id, _ in semantic.index.search("memory", text, config.EMBED_MATCHES)]
+        facts = list(dict.fromkeys(facts + self.db.memories_by_ids(similar)))
         if ABOUT_ME.search(text.lower()):
             facts = list(dict.fromkeys(facts + self.db.recent_memories(8)))
         if not facts and is_personal(text):

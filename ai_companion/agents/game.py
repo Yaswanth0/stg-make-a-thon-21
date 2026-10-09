@@ -7,16 +7,19 @@
 While a game is on, every sentence comes here (a follow-up, like the
 Scheduler's "when?"): a cell, "restart", "quit", or "where are we?". After a
 game ends Rabbit asks whether to play again. A game left alone for
-GAME_IDLE_TIMEOUT seconds is dropped.
+GAME_IDLE_TIMEOUT seconds is dropped. Every result is saved, so "who won the
+last game?" and "what's the score?" can be answered later.
 """
 
 import random
 import re
 import time
+from datetime import datetime
 
 import config
 import display
 from agents.base import Agent
+from timeparse import spoken_time
 
 LINES = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]
 USER, RABBIT = "X", "O"
@@ -28,6 +31,19 @@ QUIT = re.compile(r"\b(quit|exit|stop|end|cancel|enough|give up|i'?m done)\b")
 YES = re.compile(r"^(yes|yeah|yep|sure|ok(ay)?|of course|let'?s|why not|go|alright)\b")
 NO = re.compile(r"^(no|nope|nah|not now|no thanks|later)\b")
 BOARD = re.compile(r"\b(board|where are we|what('s| is) (taken|free|left)|which (cells|numbers)|status)\b")
+
+# Questions about games already played: "who won the last game?", "what's the score?".
+RESULTS = re.compile(r"\b(who (won|is winning|'s winning|is ahead)|score|scores|how many (games|times)|"
+                     r"did (i|you) (win|lose)|have (i|you) (won|lost)|results?|tally)\b")
+ABOUT_OUR_GAMES = re.compile(r"\b(games?|tic[\s-]*tac[\s-]*toe|we play(ed)?|so far|against (you|me))\b")
+# ...but "who won the last IPL game?" is about sport.
+SPORT = re.compile(r"\b(cricket|ipl|match|football|soccer|team|india|world cup|league|tournament|"
+                   r"olympics?|tennis|nba|fifa|series|t20|odi)\b")
+
+
+def is_results_question(text):
+    t = text.lower()
+    return bool(RESULTS.search(t) and ABOUT_OUR_GAMES.search(t) and not SPORT.search(t))
 
 NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
                 "nine": 9, "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
@@ -158,6 +174,7 @@ class Game(Agent):
         self._board = None
         self._state = "idle"     # "idle", "playing", or "ask_again" (after a game ends)
         self._last_seen = 0.0
+        self._results = []       # [(finished_at, winner)] when there is no database
 
     def awaiting_followup(self):
         if self._state == "idle":
@@ -171,7 +188,12 @@ class Game(Agent):
         self._last_seen = time.monotonic()
         t = text.lower().strip()
         if self._state == "idle":
+            if is_results_question(t):
+                return self.results_reply()
             return self._new_game(intro=True)
+        if RESULTS.search(t) and not SPORT.search(t):
+            return self.results_reply() + (" Your turn." if self._state == "playing" else
+                                           " Do you want to play again?")
         if self._state == "ask_again":
             if YES.search(t) or RESTART.search(t):
                 return self._new_game()
@@ -195,9 +217,9 @@ class Game(Agent):
         self._board[cell - 1] = USER
         self._show()
         if winner(self._board) == USER:
-            return self._finish("You win! Well played.")
+            return self._finish("You win! Well played.", "user")
         if not free_cells(self._board):
-            return self._finish("It's a draw.")
+            return self._finish("It's a draw.", "draw")
         return self._rabbit_turn()
 
     # ------------------------------------------------ turns
@@ -217,14 +239,44 @@ class Game(Agent):
         self._show()
         move = f"I take {i + 1}."
         if winner(self._board) == RABBIT:
-            return self._finish(f"{move} I win!")
+            return self._finish(f"{move} I win!", "rabbit")
         if not free_cells(self._board):
-            return self._finish(f"{move} It's a draw.")
+            return self._finish(f"{move} It's a draw.", "draw")
         return f"{move} Your turn."
 
-    def _finish(self, result):
+    def _finish(self, result, who):
         self._state = "ask_again"
+        if self.db is not None:
+            self.db.add_game_result(who)
+        else:
+            self._results.insert(0, (datetime.now(), who))
         return f"{result} Do you want to play again?"
+
+    # ------------------------------------------------ past games
+    def results(self):
+        """[(finished_at, winner)], newest first; winner is user / rabbit / draw."""
+        return self.db.game_results() if self.db is not None else list(self._results)
+
+    def has_results(self):
+        return bool(self.results())
+
+    def results_reply(self):
+        """"I won the last game, today at 12:40 AM. Overall, you've won 2 and
+        I've won 1, with 1 draw."""
+        results = self.results()
+        if not results:
+            return "We haven't played any games yet. Say: let's play tic-tac-toe."
+        finished, who = results[0]
+        last = {"user": "You won the last game", "rabbit": "I won the last game",
+                "draw": "The last game was a draw"}[who]
+        reply = f"{last}, {spoken_time(finished, datetime.now())}."
+        if len(results) > 1:
+            wins = {w: sum(1 for _, x in results if x == w) for w in ("user", "rabbit", "draw")}
+            overall = f"you've won {wins['user']} and I've won {wins['rabbit']}"
+            if wins["draw"]:
+                overall += f", with {wins['draw']} draw" + ("s" if wins["draw"] > 1 else "")
+            reply += f" Overall, {overall}."
+        return reply
 
     def _end(self, reply=""):
         self._state, self._board = "idle", None

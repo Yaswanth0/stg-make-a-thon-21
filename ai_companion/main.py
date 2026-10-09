@@ -31,6 +31,7 @@ import config
 import display
 import leds
 import music
+import semantic
 from agents.conductor import music_label
 from db import Database
 from display import open_display
@@ -189,7 +190,7 @@ def build_conductor(llm, db):
         "remember": Archivist(llm, db),
         "answer": Responder(llm, db),
         "music": Music(),
-        "game": Game(),
+        "game": Game(db=db),
     })
 
 
@@ -388,6 +389,7 @@ def main(argv=None):
     parser.add_argument("--no-switch", action="store_true", help="ignore the rocker switch")
     parser.add_argument("--no-leds", action="store_true", help="don't use the status LEDs")
     parser.add_argument("--no-oled", action="store_true", help="don't use the OLED screen")
+    parser.add_argument("--no-embeddings", action="store_true", help="keyword search only")
     parser.add_argument("--debug", action="store_true", help="more detailed logs")
     args = parser.parse_args(argv)
 
@@ -406,6 +408,7 @@ def main(argv=None):
     display.screen = open_display(enabled=not args.no_oled)
     db = Database(config.DB_FILE)
     llm, llm_ready = load_llm()
+    semantic.index = semantic.open_index(db, enabled=llm_ready and not args.no_embeddings)
     conductor = build_conductor(llm, db)
     try:
         if args.text:

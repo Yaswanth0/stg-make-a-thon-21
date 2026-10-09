@@ -45,6 +45,18 @@ CREATE TABLE IF NOT EXISTS reminders (
     status     TEXT NOT NULL DEFAULT 'pending'  -- pending / done / cancelled
 );
 CREATE INDEX IF NOT EXISTS reminders_due ON reminders (status, due_at);
+CREATE TABLE IF NOT EXISTS embeddings (
+    kind    TEXT NOT NULL,      -- memory / turn
+    ref_id  INTEGER NOT NULL,   -- memories.id or conversations.id
+    model   TEXT NOT NULL,
+    vector  BLOB NOT NULL,      -- float32s
+    PRIMARY KEY (kind, ref_id, model)
+);
+CREATE TABLE IF NOT EXISTS games (
+    id          INTEGER PRIMARY KEY,
+    finished_at TEXT NOT NULL,
+    winner      TEXT NOT NULL   -- user / rabbit / draw
+);
 """
 
 
@@ -54,6 +66,12 @@ def now_text(moment=None):
 
 def parse_time(text):
     return datetime.strptime(text, TIME_FORMAT)
+
+
+def turn_text(user_text, reply):
+    """One conversation turn as text, for embedding."""
+    text = f"User: {user_text}\nRabbit: {reply}" if user_text else f"Rabbit: {reply}"
+    return text[:1000]
 
 
 def keywords(text):
@@ -102,6 +120,16 @@ class Database:
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(SCHEMA)
             self.has_fts = self._create_fts()
+        # Called with (kind, id, text) after a fact or turn is saved; the
+        # meaning-search index (semantic.py) sets it to embed them.
+        self.on_saved = None
+
+    def _saved(self, kind, ref_id, text):
+        if self.on_saved is not None:
+            try:
+                self.on_saved(kind, ref_id, text)
+            except Exception as e:
+                log.warning("Indexing %s %s failed: %s", kind, ref_id, e)
 
     def _create_fts(self):
         """Full-text indexes over memories and conversations. Falls back to
@@ -143,6 +171,8 @@ class Database:
                     "INSERT INTO conversations_fts (rowid, user_text, reply) VALUES (?, ?, ?)",
                     (cur.lastrowid, user_text, reply),
                 )
+        self._saved("turn", cur.lastrowid, turn_text(user_text, reply))
+        return cur.lastrowid
 
     def recent_turn_ids(self, limit, max_age_seconds):
         """Ids of the turns recent_turns() returns, so they aren't recalled twice."""
@@ -226,7 +256,55 @@ class Database:
                 self._conn.execute(
                     "INSERT INTO memories_fts (rowid, fact) VALUES (?, ?)", (cur.lastrowid, fact)
                 )
-            return cur.lastrowid
+        self._saved("memory", cur.lastrowid, fact)
+        return cur.lastrowid
+
+    def memories_by_ids(self, ids):
+        """Facts for these ids, in the same order."""
+        if not ids:
+            return []
+        marks = ",".join("?" * len(ids))
+        found = {r["id"]: r["fact"] for r in self._query(f"SELECT id, fact FROM memories WHERE id IN ({marks})", ids)}
+        return [found[i] for i in ids if i in found]
+
+    def turns_by_ids(self, ids, since=None, until=None, skip_ids=()):
+        """Turns for these ids, in the same order, optionally only between
+        `since` and `until` and leaving out `skip_ids`."""
+        ids = [i for i in ids if i not in set(skip_ids)]
+        if not ids:
+            return []
+        marks = ",".join("?" * len(ids))
+        rows = self._query(f"SELECT id, created_at, user_text, agent, reply FROM conversations WHERE id IN ({marks})",
+                           ids)
+        found = {}
+        for r in rows:
+            if since and r["created_at"] < now_text(since):
+                continue
+            if until and r["created_at"] >= now_text(until):
+                continue
+            found[r["id"]] = {k: r[k] for k in ("created_at", "user_text", "agent", "reply")}
+        return [found[i] for i in ids if i in found]
+
+    # ------------------------------------------------------------ embeddings
+    def save_embedding(self, kind, ref_id, model, vector_bytes):
+        self._write("INSERT OR REPLACE INTO embeddings (kind, ref_id, model, vector) VALUES (?, ?, ?, ?)",
+                    (kind, ref_id, model, vector_bytes))
+
+    def embeddings(self, kind, model):
+        """[(ref_id, vector_bytes)] for every embedded fact or turn."""
+        rows = self._query("SELECT ref_id, vector FROM embeddings WHERE kind = ? AND model = ? ORDER BY ref_id",
+                           (kind, model))
+        return [(r["ref_id"], r["vector"]) for r in rows]
+
+    def unembedded(self, kind, model):
+        """[(id, text)] of facts or turns not embedded with `model` yet."""
+        if kind == "memory":
+            rows = self._query("SELECT id, fact FROM memories WHERE id NOT IN "
+                               "(SELECT ref_id FROM embeddings WHERE kind = 'memory' AND model = ?)", (model,))
+            return [(r["id"], r["fact"]) for r in rows]
+        rows = self._query("SELECT id, user_text, reply FROM conversations WHERE id NOT IN "
+                           "(SELECT ref_id FROM embeddings WHERE kind = 'turn' AND model = ?)", (model,))
+        return [(r["id"], turn_text(r["user_text"], r["reply"])) for r in rows]
 
     def search_memories(self, text, limit):
         """Facts sharing keywords (or their synonyms) with `text`, best match first."""
@@ -254,6 +332,15 @@ class Database:
     def recent_memories(self, limit):
         rows = self._query("SELECT fact FROM memories ORDER BY id DESC LIMIT ?", (limit,))
         return [r["fact"] for r in rows]
+
+    # ------------------------------------------------------------ tic-tac-toe
+    def add_game_result(self, winner):
+        self._write("INSERT INTO games (finished_at, winner) VALUES (?, ?)", (now_text(), winner))
+
+    def game_results(self, limit=1000):
+        """[(finished_at, winner)], newest first."""
+        rows = self._query("SELECT finished_at, winner FROM games ORDER BY id DESC LIMIT ?", (limit,))
+        return [(parse_time(r["finished_at"]), r["winner"]) for r in rows]
 
     # ------------------------------------------------------------ reminders
     def add_reminder(self, task, due_at):

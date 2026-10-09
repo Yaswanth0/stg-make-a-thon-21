@@ -97,6 +97,11 @@ HISTORY_MAX_AGE = 30 * 60    # seconds; older turns are left out of the context
 MEMORY_MATCHES = 3           # memories the Responder sees per question
 MEMORY_FALLBACK = 15         # a question about the user that matches nothing sees this many recent facts
 RECALL_MATCHES = 4           # past conversation turns looked up for "what did you tell me about ...?"
+# Meaning search (semantic.py): finds facts and past turns that say the same
+# thing in other words. Needs: ollama pull nomic-embed-text (about 270 MB).
+EMBED_MODEL = "nomic-embed-text"   # None = keyword search only
+EMBED_MATCHES = 3            # extra facts found by meaning, per question
+EMBED_MIN_SIMILARITY = 0.55  # 0..1; lower finds more but looser matches
 
 # ---------------------------------------------------------------- reminders
 REMINDER_CHECK_INTERVAL = 5  # seconds between checks for due reminders
