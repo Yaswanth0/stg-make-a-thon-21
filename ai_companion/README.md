@@ -38,6 +38,25 @@ Things to say: "Rabbit" (wake), "remember my locker code is 4521",
 "what are my reminders?", "cancel the reminder to call mom",
 "search for the price of a Raspberry Pi 5", "sleep", "mayday" (exit).
 
+## Rocker switch
+
+| Switch | What happens |
+|---|---|
+| ON | Starts in RUNNING ("System ready."), no wake word needed |
+| OFF | "Switched off. Shutting down." → ABORTED, from any state |
+| OFF at startup | Waits, idle, until it's switched ON |
+
+Wiring: one terminal to **GPIO17 (physical pin 11)**, the other to **GND
+(physical pin 9)**. No resistor needed; the Pi's internal pull-up is used.
+Change the pin with `SWITCH_PIN` in `config.py`.
+
+"sleep", "rabbit" and "mayday" still work while the switch is ON. Under
+systemd, switching OFF exits with code 3, so the service restarts and waits
+for ON again; "mayday" exits with 0 and stays stopped.
+
+Run without the switch: `python main.py --no-switch`. Without GPIO
+(a laptop), it's skipped automatically with a warning.
+
 ## Tests
 
 ```bash

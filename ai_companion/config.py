@@ -9,6 +9,13 @@ EXIT_WORD = "mayday"
 SILENCE_TIMEOUT = 120        # seconds of silence in RUNNING before going to sleep
 SLEEP_COMMAND_MAX_WORDS = 4  # "sleep", "go to sleep" count; longer sentences don't
 
+# ---------------------------------------------------------------- rocker switch
+# ON = start in RUNNING, OFF = ABORTED. None = no switch fitted.
+SWITCH_PIN = 17              # BCM numbering: GPIO17 is physical pin 11
+SWITCH_DEBOUNCE = 0.3        # seconds a change must last before it counts
+SWITCH_OFF_EXIT_CODE = 3     # non-zero, so systemd restarts us to wait for ON again
+SWITCH_OFF_FORCE_QUIT = 15   # seconds; if a clean shutdown takes longer, quit anyway
+
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"
 SPEECH_RATE = 150            # words per minute
@@ -39,7 +46,7 @@ MISSED_REMINDER_GRACE = 5 * 60  # due longer ago than this = announced as "misse
 FOLLOWUP_TIMEOUT = 60        # seconds to wait for "when?" after "remind me to ..."
 
 # ---------------------------------------------------------------- research
-SEARCH_RESULTS = 5
+SEARCH_RESULTS = 3
 SEARCH_TIMEOUT = 10          # seconds
 PAGES_TO_READ = 2            # top results whose page text is read, not just the snippet
 PAGE_TEXT_CHARS = 1200       # text kept per page; more = slower LLM answers

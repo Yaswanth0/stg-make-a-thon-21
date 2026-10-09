@@ -5,4 +5,6 @@ PyAudio
 numpy
 dateparser
 ddgs
+gpiozero
+lgpio
 pytest
