@@ -12,6 +12,7 @@ import re
 
 import config
 import prompts
+from recall import is_recall
 
 log = logging.getLogger("conductor")
 
@@ -97,7 +98,10 @@ class Conductor:
         return None
 
     def classify(self, text):
-        """Returns (label, how) where how is "shortcut", "llm" or "default"."""
+        """Returns (label, how) where how is "shortcut", "llm", "recall" or "default"."""
+        if is_recall(text):
+            # "What was the gold price you told me?" is about the past, not a new search.
+            return DEFAULT_LABEL, "recall"
         if self.use_shortcuts:
             label = shortcut_label(text)
             if label:

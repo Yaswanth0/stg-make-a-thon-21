@@ -104,14 +104,20 @@ class Database:
             self.has_fts = self._create_fts()
 
     def _create_fts(self):
-        """Full-text index over memories. Falls back to LIKE matching if this
-        SQLite was built without FTS5."""
+        """Full-text indexes over memories and conversations. Falls back to
+        simple matching if this SQLite was built without FTS5."""
         try:
             self._conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(fact)")
-            return True
+            self._conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(user_text, reply)")
         except sqlite3.OperationalError:
             log.warning("SQLite has no FTS5; memory search uses simple matching")
             return False
+        # Index conversations saved before this index existed (once).
+        self._conn.execute(
+            "INSERT INTO conversations_fts (rowid, user_text, reply) SELECT id, user_text, reply "
+            "FROM conversations WHERE id > (SELECT IFNULL(MAX(rowid), 0) FROM conversations_fts)"
+        )
+        return True
 
     def _query(self, sql, params=()):
         with self._lock:
@@ -127,10 +133,72 @@ class Database:
 
     # ------------------------------------------------------------ conversations
     def add_turn(self, user_text, reply, agent):
-        self._write(
-            "INSERT INTO conversations (created_at, user_text, agent, reply) VALUES (?, ?, ?, ?)",
-            (now_text(), user_text, agent, reply),
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO conversations (created_at, user_text, agent, reply) VALUES (?, ?, ?, ?)",
+                (now_text(), user_text, agent, reply),
+            )
+            if self.has_fts:
+                self._conn.execute(
+                    "INSERT INTO conversations_fts (rowid, user_text, reply) VALUES (?, ?, ?)",
+                    (cur.lastrowid, user_text, reply),
+                )
+
+    def recent_turn_ids(self, limit, max_age_seconds):
+        """Ids of the turns recent_turns() returns, so they aren't recalled twice."""
+        since = now_text(datetime.now() - timedelta(seconds=max_age_seconds))
+        rows = self._query("SELECT id FROM conversations WHERE created_at >= ? ORDER BY id DESC LIMIT ?",
+                           (since, limit))
+        return [r["id"] for r in rows]
+
+    def search_conversations(self, words, limit, since=None, until=None, skip_ids=()):
+        """Past turns mentioning any of `words` (synonyms included), best match
+        first, optionally between `since` and `until`, leaving out `skip_ids`."""
+        words = with_synonyms(words)
+        if not words:
+            return []
+        skip = ",".join(str(int(i)) for i in skip_ids) or "0"
+        where, params = [f"c.id NOT IN ({skip})"], []
+        if since:
+            where.append("c.created_at >= ?")
+            params.append(now_text(since))
+        if until:
+            where.append("c.created_at < ?")
+            params.append(now_text(until))
+        if self.has_fts:
+            match = " OR ".join('"%s"*' % w for w in words)
+            rows = self._query(
+                "SELECT c.created_at, c.user_text, c.agent, c.reply FROM conversations_fts f "
+                "JOIN conversations c ON c.id = f.rowid WHERE conversations_fts MATCH ? AND "
+                + " AND ".join(where) + " ORDER BY f.rank LIMIT ?",
+                [match] + params + [limit],
+            )
+            return [dict(r) for r in rows]
+        rows = self._query(
+            "SELECT c.created_at, c.user_text, c.agent, c.reply FROM conversations c WHERE "
+            + " AND ".join(where) + " ORDER BY c.id DESC",
+            params,
         )
+        scored = []
+        for r in rows:
+            text = f"{r['user_text']} {r['reply']}".lower()
+            score = sum(1 for w in words if w in text)
+            if score:
+                scored.append((score, dict(r)))
+        scored.sort(key=lambda s: -s[0])
+        return [turn for _, turn in scored[:limit]]
+
+    def turns_between(self, since, until, limit, skip_ids=()):
+        """Turns between two datetimes, oldest first (for "what did we talk
+        about yesterday?"), leaving out `skip_ids`."""
+        skip = ",".join(str(int(i)) for i in skip_ids) or "0"
+        rows = self._query(
+            "SELECT created_at, user_text, agent, reply FROM conversations "
+            f"WHERE created_at >= ? AND created_at < ? AND id NOT IN ({skip}) "
+            "ORDER BY id DESC LIMIT ?",
+            (now_text(since), now_text(until), limit),
+        )
+        return [dict(r) for r in reversed(rows)]
 
     def recent_turns(self, limit, max_age_seconds):
         """The last `limit` turns no older than `max_age_seconds`, oldest first."""

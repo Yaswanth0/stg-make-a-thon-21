@@ -14,7 +14,9 @@ from datetime import datetime
 import config
 import prompts
 from agents.base import Agent
+from db import parse_time
 from grounding import keep_supported
+from recall import is_recall, period, topic_words
 from timeparse import spoken_time
 
 log = logging.getLogger("responder")
@@ -56,10 +58,31 @@ def fact_to_speech(fact):
     return fact
 
 
+# Replies not worth recalling: errors, "didn't catch that", "not saved".
+_NOT_WORTH_RECALLING = re.compile(
+    r"^(sorry|i didn't catch|i don't have that saved|i can't look that up|i couldn't find|"
+    r"i don't remember|i'm not sure what you)", re.IGNORECASE)
+
+
+def is_worth_recalling(turn):
+    return not _NOT_WORTH_RECALLING.search(turn["reply"].strip())
+
+
+def recall_line(turn, now):
+    """'yesterday at 9:30 PM: the user said "..."; you replied "..."'."""
+    when = spoken_time(parse_time(turn["created_at"]), now)
+    reply = turn["reply"][:250]
+    if not turn["user_text"]:
+        return f'{when}: you announced "{reply}"'
+    return f'{when}: the user said "{turn["user_text"]}"; you replied "{reply}"'
+
+
 class Responder(Agent):
     name = "responder"
 
     def handle(self, text):
+        if is_recall(text):
+            return self.recall(text)
         personal = is_personal(text)
         facts = self.facts_for(text)
         if personal and not facts:
@@ -78,6 +101,45 @@ class Responder(Agent):
             reply, dropped = keep_supported(reply, text, *facts)
             if dropped and not reply:
                 return "Here's what I have saved: " + " ".join(fact_to_speech(f) for f in facts)
+        return reply
+
+    def recall(self, text):
+        """Answers a question about earlier conversations from the saved ones."""
+        now = datetime.now()
+        span = period(text, now)
+        since, until = (span[0], span[1]) if span else (None, None)
+        words = topic_words(text)
+        # The last few turns are already in the conversation; don't repeat them.
+        skip = self.db.recent_turn_ids(config.HISTORY_TURNS, config.HISTORY_MAX_AGE)
+        turns = []
+        if words:
+            turns = self.db.search_conversations(words, config.RECALL_MATCHES, since, until, skip_ids=skip)
+        if not turns and span:
+            # "What did we talk about yesterday?": everything from then.
+            turns = self.db.turns_between(since, until, config.RECALL_MATCHES * 2, skip_ids=skip)
+        turns = [t for t in turns if is_worth_recalling(t)]  # best match first
+        best = turns[0] if turns else None
+        turns.sort(key=lambda t: t["created_at"])
+        log.info("Recalled %d earlier turn(s)", len(turns))
+        if not turns:
+            when = f" from {span[2]}" if span else ""
+            return f"I don't remember us talking about that{when}."
+
+        lines = [recall_line(t, now) for t in turns]
+        system = (self.system_prompt(text, facts=[]) + "\n\n"
+                  "Earlier conversations that match the question, oldest first. Answer from these only; "
+                  "if they don't answer it, say you don't remember talking about that:\n"
+                  + "\n".join(f"- {line}" for line in lines))
+        reply = self.llm.chat(system, text, temperature=config.RESPONDER_TEMPERATURE)
+        if not reply:
+            return "Sorry, my language model is not responding."
+        if CLAIMS_SEARCH.search(reply):
+            return CANT_SEARCH_REPLY
+        # Numbers must be what was actually said back then.
+        reply, dropped = keep_supported(reply, text, *lines)
+        if dropped and not reply:
+            asked = f"you asked: {best['user_text']}. " if best["user_text"] else ""
+            return f"{spoken_time(parse_time(best['created_at']), now).capitalize()}, {asked}I said: {best['reply'][:300]}"
         return reply
 
     def facts_for(self, text):

@@ -96,6 +96,7 @@ HISTORY_TURNS = 2            # past turns the Responder sees (more = slower, and
 HISTORY_MAX_AGE = 30 * 60    # seconds; older turns are left out of the context
 MEMORY_MATCHES = 3           # memories the Responder sees per question
 MEMORY_FALLBACK = 15         # a question about the user that matches nothing sees this many recent facts
+RECALL_MATCHES = 4           # past conversation turns looked up for "what did you tell me about ...?"
 
 # ---------------------------------------------------------------- reminders
 REMINDER_CHECK_INTERVAL = 5  # seconds between checks for due reminders
