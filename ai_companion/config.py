@@ -17,7 +17,10 @@ SWITCH_DEBOUNCE = 0.3        # seconds a change must last before it counts
 
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"
-TTS_ENGINE = "kokoro"        # "kokoro" (most human), "piper" (faster), "espeak" (robotic)
+# Piper: natural female voice, fast on the Pi 5. Kokoro sounds more human but
+# measured x2.5 slower than real time on the Pi (tts_benchmark.py), so it
+# pauses mid-reply. "espeak" = robotic, last resort.
+TTS_ENGINE = "piper"         # "piper", "kokoro" or "espeak"
 TTS_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices")
 
 # Kokoro female voices, best first (a = American, b = British accent):
@@ -37,7 +40,7 @@ TTS_CACHED_PHRASES = [
     "Switched on.", "Switched off.", "System ready.",
 ]
 
-# Piper (used if Kokoro can't load). Female voices:
+# Piper female voices (hear them at the link below; change and restart to switch):
 #   en_US-hfc_female-medium, en_US-amy-medium, en_US-kristin-medium, en_GB-jenny_dioco-medium
 # Samples: https://rhasspy.github.io/piper-samples/
 PIPER_VOICE = "en_US-hfc_female-medium"
