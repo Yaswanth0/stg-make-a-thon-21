@@ -5,6 +5,7 @@ PyAudio
 numpy
 dateparser
 ddgs
+kokoro-onnx
 piper-tts
 gpiozero
 lgpio

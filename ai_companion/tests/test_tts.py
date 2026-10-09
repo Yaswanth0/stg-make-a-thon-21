@@ -1,10 +1,11 @@
-"""Text to speech: symbol cleanup, and falling back to espeak-ng."""
+"""Text to speech: symbol cleanup, sentence chunks, the voice fallback order,
+and playing one sentence while the next is synthesized."""
 
 import pytest
 
 import audio
 import tts
-from tts import EspeakTTS, clean_for_speech, make_tts
+from tts import EspeakTTS, clean_for_speech, make_tts, speech_chunks
 
 
 @pytest.mark.parametrize("text,spoken", [
@@ -21,34 +22,114 @@ def test_clean_for_speech(text, spoken):
     assert clean_for_speech(text) == spoken
 
 
-def test_falls_back_to_espeak_without_piper(monkeypatch):
-    def no_piper(*args, **kwargs):
-        raise ImportError("No module named 'piper'")
-
-    monkeypatch.setattr(tts, "PiperTTS", no_piper)
-    assert isinstance(make_tts("piper"), EspeakTTS)
-
-
-def test_falls_back_to_espeak_when_voice_fails_to_load(monkeypatch):
-    def broken(*args, **kwargs):
-        raise OSError("voice download failed")
-
-    monkeypatch.setattr(tts, "PiperTTS", broken)
-    assert isinstance(make_tts("piper"), EspeakTTS)
+def test_speech_chunks():
+    assert speech_chunks("Sure. The capital of France is Paris. It has about two million people.") == [
+        "Sure. The capital of France is Paris.", "It has about two million people."]
+    assert speech_chunks("Yes?") == ["Yes?"]
+    assert speech_chunks("The weather is sunny today. Enjoy!") == ["The weather is sunny today. Enjoy!"]
+    assert speech_chunks("") == []
 
 
-def test_espeak_when_configured():
-    assert isinstance(make_tts("espeak"), EspeakTTS)
+# ---------------------------------------------------------------- fallback order
+def fake_engines(monkeypatch, working):
+    """Engines that load only if their name is in `working`."""
+    def engine(name):
+        class Engine:
+            def __init__(self):
+                if name not in working:
+                    raise ImportError(f"No module named '{name}'")
+                self.name = name
+        return Engine
+
+    monkeypatch.setattr(tts, "ENGINES", {name: engine(name) for name in ("kokoro", "piper", "espeak")})
 
 
-def test_speaker_uses_espeak_for_a_sentence_piper_fails_on(monkeypatch):
-    class BrokenPiper:
-        name = "piper"
+@pytest.mark.parametrize("configured,working,chosen", [
+    ("kokoro", {"kokoro", "piper", "espeak"}, "kokoro"),
+    ("kokoro", {"piper", "espeak"}, "piper"),
+    ("kokoro", {"espeak"}, "espeak"),
+    ("piper", {"kokoro", "piper", "espeak"}, "piper"),
+    ("espeak", {"kokoro", "piper", "espeak"}, "espeak"),
+])
+def test_fallback_order(monkeypatch, configured, working, chosen):
+    fake_engines(monkeypatch, working)
+    assert make_tts(configured).name == chosen
+
+
+def test_espeak_uses_the_female_voice(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tts.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    EspeakTTS().synthesize("Hello.", "/tmp/x.wav")
+    assert calls[0][:3] == ["espeak-ng", "-v", "en-us+f3"]
+
+
+# ---------------------------------------------------------------- Speaker
+class FakePlayer:
+    def __init__(self, log, wav):
+        self.log, self.wav = log, wav
+        log.append(("play", wav))
+
+    def wait(self):
+        self.log.append(("done", self.wav))
+
+    def poll(self):
+        return 0
+
+    def terminate(self):
+        pass
+
+
+class RecordingTTS:
+    name = "fake"
+
+    def __init__(self, log):
+        self.log = log
+
+    def synthesize(self, text, wav_path):
+        self.log.append(("synth", text, wav_path))
+
+
+def make_speaker(monkeypatch):
+    log = []
+    monkeypatch.setattr(audio.subprocess, "Popen", lambda cmd: FakePlayer(log, cmd[1]))
+    return audio.Speaker(tts=RecordingTTS(log)), log
+
+
+def test_next_sentence_is_synthesized_while_one_plays(monkeypatch):
+    speaker, log = make_speaker(monkeypatch)
+    a, b = speaker._wavs
+    speaker.say("The capital of France is Paris. It has about two million people.")
+    assert log == [
+        ("synth", "The capital of France is Paris.", a),
+        ("play", a),
+        ("synth", "It has about two million people.", b),  # while the first plays
+        ("done", a),
+        ("play", b),
+        ("done", b),
+    ]
+
+
+def test_mute_stops_the_remaining_sentences(monkeypatch):
+    speaker, log = make_speaker(monkeypatch)
+    original = FakePlayer.wait
+
+    def wait_then_mute(self):
+        original(self)
+        speaker.mute()  # the switch goes OFF during the first sentence
+
+    monkeypatch.setattr(FakePlayer, "wait", wait_then_mute)
+    speaker.say("The capital of France is Paris. It has about two million people.")
+    assert [entry[0] for entry in log].count("play") == 1
+
+
+def test_speaker_uses_espeak_for_a_sentence_the_voice_fails_on(monkeypatch):
+    class BrokenVoice:
+        name = "kokoro"
 
         def synthesize(self, text, wav_path):
             raise RuntimeError("onnx error")
 
     spoken = []
     monkeypatch.setattr(audio.EspeakTTS, "synthesize", lambda self, text, path: spoken.append(text))
-    audio.Speaker(tts=BrokenPiper())._synthesize("Hello there.")
+    audio.Speaker(tts=BrokenVoice())._synthesize("Hello there.", "/tmp/x.wav")
     assert spoken == ["Hello there."]

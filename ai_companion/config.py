@@ -17,15 +17,22 @@ SWITCH_DEBOUNCE = 0.3        # seconds a change must last before it counts
 
 # ---------------------------------------------------------------- audio
 TTS_WAV = "/tmp/tts_output.wav"
-TTS_ENGINE = "piper"         # "piper" = natural voice, "espeak" = robotic but tiny
-# Piper voices: https://rhasspy.github.io/piper-samples/ (listen before choosing).
-#   en_US-lessac-medium  clear, neutral US voice (default)
-#   en_US-amy-medium     US female        en_US-ryan-medium     US male
-#   en_GB-alba-medium    UK female        en_GB-northern_english_male-medium
-#   "-high" versions sound a little better but take longer to speak on the Pi.
-PIPER_VOICE = "en_US-lessac-medium"
-PIPER_VOICES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices")
+TTS_ENGINE = "kokoro"        # "kokoro" (most human), "piper" (faster), "espeak" (robotic)
+TTS_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voices")
+
+# Kokoro female voices, best first (a = American, b = British accent):
+#   af_heart, af_bella, af_nicole (soft), af_sarah, bf_emma, bf_isabella
+# Samples: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
+KOKORO_VOICE = "af_heart"
+KOKORO_SPEED = 1.0           # 1.1 = a bit faster, 0.9 = a bit slower
+
+# Piper (used if Kokoro can't load). Female voices:
+#   en_US-hfc_female-medium, en_US-amy-medium, en_US-kristin-medium, en_GB-jenny_dioco-medium
+# Samples: https://rhasspy.github.io/piper-samples/
+PIPER_VOICE = "en_US-hfc_female-medium"
 PIPER_LENGTH_SCALE = 1.0     # speaking speed: 0.9 = a bit faster, 1.1 = a bit slower
+
+ESPEAK_VOICE = "en-us+f3"    # last resort; "+f3" = female variant
 SPEECH_RATE = 150            # espeak-ng only: words per minute
 
 MIC_NAME_HINT = "USB"        # the mic is picked by name, so a changed index is fine

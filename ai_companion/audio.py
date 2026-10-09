@@ -11,16 +11,19 @@ import time
 from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
 
 import config
-from tts import EspeakTTS, clean_for_speech, make_tts
+from tts import EspeakTTS, clean_for_speech, make_tts, speech_chunks
 
 log = logging.getLogger("audio")
 
 
 # ---------------------------------------------------------------- audio out
 class Speaker:
-    """Speaks through Piper (or espeak-ng, see tts.py) and PipeWire. The main
-    loop and the reminder thread both speak, so a lock makes one wait for the
-    other instead of talking over it."""
+    """Speaks through Kokoro, Piper or espeak-ng (see tts.py) and PipeWire.
+
+    A reply is spoken sentence by sentence: while one sentence plays, the next
+    is being synthesized, so speech starts after the first sentence instead of
+    after the whole reply. The main loop and the reminder thread both speak,
+    so a lock makes one wait for the other instead of talking over it."""
 
     def __init__(self, tts=None):
         self._tts = tts or make_tts()
@@ -29,20 +32,31 @@ class Speaker:
         self._last_spoke = 0.0  # time.monotonic() when the last speech ended
         self._muted = False
         self._player = None     # the pw-play process while speech is playing
+        # Two files, so one can play while the next sentence is written.
+        base = config.TTS_WAV[:-4] if config.TTS_WAV.endswith(".wav") else config.TTS_WAV
+        self._wavs = (f"{base}_a.wav", f"{base}_b.wav")
 
     def say(self, text):
         if self._muted:
             log.info("AI (muted): %s", text)
             return
         log.info("AI: %s", text)
+        chunks = speech_chunks(clean_for_speech(text))
+        if not chunks:
+            return
         with self._lock:
             if self._muted:
                 return
             self._speaking = True
             try:
-                self._synthesize(clean_for_speech(text))
-                self._player = subprocess.Popen(["pw-play", config.TTS_WAV])
-                self._player.wait()
+                self._synthesize(chunks[0], self._wavs[0])
+                for i in range(len(chunks)):
+                    if self._muted:
+                        break
+                    self._player = subprocess.Popen(["pw-play", self._wavs[i % 2]])
+                    if i + 1 < len(chunks):
+                        self._synthesize(chunks[i + 1], self._wavs[(i + 1) % 2])  # while this one plays
+                    self._player.wait()
             except FileNotFoundError as e:
                 log.error("Speech error: %s is not installed.", e.filename)
             except subprocess.CalledProcessError as e:
@@ -55,15 +69,15 @@ class Speaker:
                 self._speaking = False
                 self._last_spoke = time.monotonic()
 
-    def _synthesize(self, text):
+    def _synthesize(self, text, wav_path):
         try:
-            self._tts.synthesize(text, config.TTS_WAV)
+            self._tts.synthesize(text, wav_path)
         except (FileNotFoundError, subprocess.CalledProcessError):
             raise
         except Exception as e:
-            # Piper failed on this sentence: say it with espeak-ng rather than not at all.
+            # The voice failed on this sentence: say it with espeak-ng rather than not at all.
             log.error("%s failed (%s); using espeak-ng", self._tts.name, e)
-            EspeakTTS().synthesize(text, config.TTS_WAV)
+            EspeakTTS().synthesize(text, wav_path)
 
     def mute(self):
         """Stops any speech playing now (from any thread) and stays silent
