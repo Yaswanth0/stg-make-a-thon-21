@@ -125,6 +125,9 @@ MUSIC_LISTEN_SECONDS = 8     # how long the music stays quiet after "Rabbit"
 GAME_LEVEL = "medium"        # "easy" (random), "medium" (beatable), "hard" (never loses)
 GAME_IDLE_TIMEOUT = 180      # seconds without a move before an unfinished game is dropped
 
+# ---------------------------------------------------------------- todo lists
+TODO_FOLLOWUP_TIMEOUT = 60   # seconds Rabbit waits for a list name, more items, or yes/no
+
 # ---------------------------------------------------------------- research
 SEARCH_RESULTS = 3
 SEARCH_TIMEOUT = 10          # seconds

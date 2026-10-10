@@ -135,6 +135,9 @@ class Conductor:
                 return "game", "shortcut"  # "who won the last game?" isn't a web search
             if label != "schedule" and game is not None and GAME_START.search(text.lower()):
                 return "game", "shortcut"
+            todo = self.agents.get("todo")
+            if label != "schedule" and todo is not None and todo.claims(text):
+                return "todo", "shortcut"  # "check off milk" isn't a web search
             if label != "schedule" and "music" in self.agents and music_label(text, music.player.is_active()):
                 return "music", "shortcut"
             if label:

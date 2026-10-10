@@ -85,6 +85,21 @@ a few seconds after you say "Rabbit"; lyrics are ignored unless you say
 "Rabbit" first. Switching OFF stops the music. Needs `sudo apt install mpv`.
 Songs aren't in git: copy them into `music/` on the Pi (see `music/README.md`).
 
+## To-do lists
+
+| Say | Rabbit |
+|---|---|
+| "Create a todo list" | asks for a name, then for items until you say "done" |
+| "Create a shopping list" | same, already named "shopping" |
+| "Add milk to my groceries list" | adds it (makes the list if needed) |
+| "Mark milk as done", "check off eggs", "milk is done" | ticks it off |
+| "Remove bread from the groceries list" | deletes the item |
+| "Delete the groceries list" | asks yes / no first |
+| "What's on my groceries list?", "What are my lists?" | reads them |
+
+While adding, each sentence is an item ("milk and eggs" is two). Lists are
+kept in `companion.db`. No LLM is used.
+
 ## Tic-tac-toe
 
 "Let's play tic-tac-toe" (or "play a game") starts a game; who goes first is

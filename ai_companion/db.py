@@ -52,6 +52,19 @@ CREATE TABLE IF NOT EXISTS embeddings (
     vector  BLOB NOT NULL,      -- float32s
     PRIMARY KEY (kind, ref_id, model)
 );
+CREATE TABLE IF NOT EXISTS todo_lists (
+    id         INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    name       TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+CREATE TABLE IF NOT EXISTS todo_items (
+    id         INTEGER PRIMARY KEY,
+    list_id    INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    done       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS todo_items_list ON todo_items (list_id);
 CREATE TABLE IF NOT EXISTS games (
     id          INTEGER PRIMARY KEY,
     finished_at TEXT NOT NULL,
@@ -332,6 +345,44 @@ class Database:
     def recent_memories(self, limit):
         rows = self._query("SELECT fact FROM memories ORDER BY id DESC LIMIT ?", (limit,))
         return [r["fact"] for r in rows]
+
+    # ------------------------------------------------------------ todo lists
+    def todo_lists(self):
+        """[{id, name, items, done}], oldest first."""
+        rows = self._query(
+            "SELECT l.id, l.name, COUNT(i.id) AS items, IFNULL(SUM(i.done), 0) AS done "
+            "FROM todo_lists l LEFT JOIN todo_items i ON i.list_id = l.id GROUP BY l.id ORDER BY l.id")
+        return [dict(r) for r in rows]
+
+    def create_todo_list(self, name):
+        """Returns (id, created): the existing list's id if the name is taken."""
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT id FROM todo_lists WHERE name = ?", (name,)).fetchone()
+            if row:
+                return row["id"], False
+            cur = self._conn.execute("INSERT INTO todo_lists (created_at, name) VALUES (?, ?)", (now_text(), name))
+            return cur.lastrowid, True
+
+    def delete_todo_list(self, list_id):
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM todo_items WHERE list_id = ?", (list_id,))
+            self._conn.execute("DELETE FROM todo_lists WHERE id = ?", (list_id,))
+
+    def todo_items(self, list_id):
+        """[{id, text, done}] in the order they were added."""
+        rows = self._query("SELECT id, text, done FROM todo_items WHERE list_id = ? ORDER BY id", (list_id,))
+        return [{"id": r["id"], "text": r["text"], "done": bool(r["done"])} for r in rows]
+
+    def add_todo_item(self, list_id, text):
+        cur = self._write("INSERT INTO todo_items (list_id, created_at, text) VALUES (?, ?, ?)",
+                          (list_id, now_text(), text))
+        return cur.lastrowid
+
+    def set_todo_done(self, item_id, done=True):
+        self._write("UPDATE todo_items SET done = ? WHERE id = ?", (int(done), item_id))
+
+    def delete_todo_item(self, item_id):
+        self._write("DELETE FROM todo_items WHERE id = ?", (item_id,))
 
     # ------------------------------------------------------------ tic-tac-toe
     def add_game_result(self, winner):

@@ -182,7 +182,7 @@ class Companion:
 
 # ---------------------------------------------------------------- setup
 def build_conductor(llm, db):
-    from agents import Archivist, Conductor, Game, Music, Researcher, Responder, Scheduler
+    from agents import Archivist, Conductor, Game, Music, Researcher, Responder, Scheduler, Todo
 
     return Conductor(llm, db, {
         "schedule": Scheduler(llm, db),
@@ -191,6 +191,7 @@ def build_conductor(llm, db):
         "answer": Responder(llm, db),
         "music": Music(),
         "game": Game(db=db),
+        "todo": Todo(db=db),
     })
 
 
