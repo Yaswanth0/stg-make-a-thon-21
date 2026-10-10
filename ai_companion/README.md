@@ -150,7 +150,21 @@ python -m tests.eval_conductor --llm-only # the model alone, without keyword sho
 
 ## Auto-start
 
-See the comments at the top of `companion.service`.
+Make Rabbit start by itself when the Pi is switched on (run once, as your
+normal user, from this folder):
+
+    bash install_autostart.sh
+
+It installs a systemd user service with the right paths, starts it at boot
+without anyone logging in, makes Ollama start at boot too, and warns about
+missing permissions. Rabbit is up about 10-20 seconds after boot.
+
+    journalctl --user-unit companion -f     # watch the log
+    systemctl --user restart companion    # after a git pull or config change
+    systemctl --user stop companion       # before running python main.py by hand
+    bash install_autostart.sh --remove    # turn auto-start off
+
+A crash restarts Rabbit; "mayday" stops it until the next boot.
 
 ## Notes
 

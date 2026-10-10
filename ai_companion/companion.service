@@ -1,30 +1,21 @@
-# systemd *user* service: it runs inside your login session, so PipeWire and
-# the Bluetooth speaker are available. Install:
+# Example of the systemd user service that starts Rabbit at boot.
+# Don't copy this by hand: run  bash install_autostart.sh  instead. It writes
+# this file with the right paths to ~/.config/systemd/user/, enables it,
+# makes it start without logging in, and makes sure Ollama starts at boot.
 #
-#   mkdir -p ~/.config/systemd/user
-#   cp companion.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now companion
-#   sudo loginctl enable-linger $USER     # start at boot without logging in
-#
-# Logs:  journalctl --user -u companion -f
-#
-# The rocker switch needs GPIO access: your user must be in the 'gpio' group
-# (check with: groups).
-#
-# Edit the two paths below if the project or venv live somewhere else.
+# Logs:  journalctl --user-unit companion -f
 
 [Unit]
-Description=Offline voice companion
-After=pipewire.service wireplumber.service network-online.target
-Wants=pipewire.service
+Description=Rabbit voice companion
+After=pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire.service wireplumber.service
 
 [Service]
-WorkingDirectory=%h/ai_companion
-ExecStart=%h/ai_companion/venv/bin/python main.py
+WorkingDirectory=%h/stg-make-a-thon-21/ai_companion
+ExecStartPre=/bin/sleep 10
+ExecStart=%h/stg-make-a-thon-21/ai_companion/venv/bin/python %h/stg-make-a-thon-21/ai_companion/main.py
 Environment=PYTHONUNBUFFERED=1
-# "mayday" exits cleanly (code 0) and stays stopped; a crash restarts it.
-# The rocker switch doesn't stop the program, it only mutes it.
+# A crash restarts Rabbit; "mayday" exits cleanly and stays stopped.
 Restart=on-failure
 RestartSec=5
 

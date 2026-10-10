@@ -116,7 +116,7 @@ cat <<EOF
 
 Done. Rabbit now starts by itself about 10-20 seconds after the Pi boots.
 
-  Watch it:     journalctl --user -u companion -f
+  Watch it:     journalctl --user-unit companion -f
   Stop it:      systemctl --user stop companion
   Start it:     systemctl --user start companion
   After a git pull:  systemctl --user restart companion
