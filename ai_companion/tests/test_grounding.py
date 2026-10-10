@@ -46,7 +46,7 @@ def research(reply, results):
 def test_researcher_drops_invented_figures():
     results = [{"title": "Gold", "body": "Gold is ₹14,957 per gram today.", "href": ""}]
     reply, llm = research("Gold is 14,957 rupees per gram. Silver is 98 rupees.", results)
-    assert reply == "Gold is 14,957 rupees per gram."
+    assert reply == "From a web search: Gold is 14,957 rupees per gram."
     assert llm.calls[0]["temperature"] == 0.1
 
 

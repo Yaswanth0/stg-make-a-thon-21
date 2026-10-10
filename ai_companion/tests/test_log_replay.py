@@ -97,7 +97,7 @@ def test_score_questions_use_news_headlines(db):
                             news=lambda q, n: news, online=lambda: True, weather=None,
                             fetch_page=lambda url, q: fetched.append(url) or "")
     reply = researcher.handle("What is the present India score against West Indies cricket?")
-    assert reply == "India beat West Indies by 5 wickets, chasing 187 in 18.2 overs."
+    assert reply == "From a web search: India beat West Indies by 5 wickets, chasing 187 in 18.2 overs."
     assert fetched == []  # news pages aren't read
     assert "2026-10-09, Cricbuzz" in llm.calls[0]["user"]
 

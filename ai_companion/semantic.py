@@ -94,6 +94,17 @@ class SemanticIndex:
             finally:
                 self._queue.task_done()
 
+    def forget(self, kind=None, ids=None):
+        """Drops deleted facts or turns from the in-memory index (the database
+        rows are deleted by the caller). No `kind`: everything."""
+        with self._lock:
+            for k in ([kind] if kind else list(self._vectors)):
+                if ids is None:
+                    self._vectors[k].clear()
+                else:
+                    for i in ids:
+                        self._vectors[k].pop(i, None)
+
     def wait(self):
         """Blocks until everything queued is embedded (for tests and tools)."""
         self._queue.join()
@@ -143,6 +154,9 @@ def cosine_similarities(query, vectors):
 
 class NoIndex:
     """Used when embeddings are off or unavailable: finds nothing."""
+
+    def forget(self, kind=None, ids=None):
+        pass
 
     def search(self, kind, question, limit, min_similarity=None):
         return []

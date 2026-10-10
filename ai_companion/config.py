@@ -101,6 +101,7 @@ HISTORY_TURNS = 2            # past turns the Responder sees (more = slower, and
 HISTORY_MAX_AGE = 30 * 60    # seconds; older turns are left out of the context
 MEMORY_MATCHES = 3           # memories the Responder sees per question
 MEMORY_FALLBACK = 15         # a question about the user that matches nothing sees this many recent facts
+HISTORY_RETENTION_DAYS = 90  # conversations older than this are deleted at startup; 0 = keep forever
 RECALL_MATCHES = 4           # past conversation turns looked up for "what did you tell me about ...?"
 # Meaning search (semantic.py): finds facts and past turns that say the same
 # thing in other words. Needs: ollama pull nomic-embed-text (about 270 MB).
@@ -127,6 +128,11 @@ GAME_IDLE_TIMEOUT = 180      # seconds without a move before an unfinished game 
 
 # ---------------------------------------------------------------- todo lists
 TODO_FOLLOWUP_TIMEOUT = 60   # seconds Rabbit waits for a list name, more items, or yes/no
+
+# ---------------------------------------------------------------- guardrails (guardrails.py)
+GUARDRAILS_ENABLED = True
+MAX_INPUT_CHARS = 500        # longer input is cut (speech is never this long; typed text can be)
+MAX_REPLY_CHARS = 700        # longer replies are cut at a sentence boundary, about 45 s of speech
 
 # ---------------------------------------------------------------- research
 SEARCH_RESULTS = 3

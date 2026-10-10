@@ -97,7 +97,7 @@ def test_researcher_reads_snippets_and_pages(db):
 
     llm = FakeLLM(text_reply="24 carat gold is 12,450 rupees per gram.")
     reply = researcher(llm, db, search=search, fetch_page=fetch_page).handle("Check today's gold price.")
-    assert reply == "24 carat gold is 12,450 rupees per gram."
+    assert reply == "From a web search: 24 carat gold is 12,450 rupees per gram."
     assert seen["query"] == "today's gold price"
     assert fetched == ["http://a", "http://b"]  # PAGES_TO_READ = 2
     user = llm.calls[0]["user"]
@@ -111,7 +111,7 @@ def test_researcher_survives_unreadable_page(db):
 
     results = [{"title": "T", "body": "B", "href": "http://a"}]
     llm = FakeLLM(text_reply="ok")
-    assert researcher(llm, db, search=lambda q, n: results, fetch_page=fetch_page).handle("search x") == "ok"
+    assert researcher(llm, db, search=lambda q, n: results, fetch_page=fetch_page).handle("search x") == "From a web search: ok"
 
 
 def test_researcher_search_failure(db):
@@ -202,7 +202,7 @@ def test_weather_failure_falls_back_to_search(db):
     results = [{"title": "Weather", "body": "Hyderabad 30C sunny", "href": ""}]
     llm = FakeLLM(text_reply="It's 30 degrees.")
     reply = researcher(llm, db, weather=broken, search=lambda q, n: results).handle("weather in Hyderabad")
-    assert reply == "It's 30 degrees."
+    assert reply == "From a web search: It's 30 degrees."
 
 
 def test_relevant_text_prefers_lines_with_numbers():

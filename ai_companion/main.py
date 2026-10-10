@@ -31,6 +31,7 @@ import config
 import display
 import leds
 import music
+import rai
 import semantic
 from agents.conductor import music_label
 from db import Database
@@ -182,7 +183,8 @@ class Companion:
 
 # ---------------------------------------------------------------- setup
 def build_conductor(llm, db):
-    from agents import Archivist, Conductor, Game, Music, Researcher, Responder, Scheduler, Todo
+    from agents import (Archivist, Conductor, Game, Music, Researcher, Responder, ResponsibleAI, Scheduler,
+                        Todo)
 
     return Conductor(llm, db, {
         "schedule": Scheduler(llm, db),
@@ -192,6 +194,7 @@ def build_conductor(llm, db):
         "music": Music(),
         "game": Game(db=db),
         "todo": Todo(db=db),
+        "rai": ResponsibleAI(db=db),
     })
 
 
@@ -408,6 +411,8 @@ def main(argv=None):
     leds.status = open_leds(enabled=not args.no_leds)
     display.screen = open_display(enabled=not args.no_oled)
     db = Database(config.DB_FILE)
+    rai.attach(db)          # audit log, saved speech speed
+    rai.apply_retention(db)  # old conversation history is deleted
     llm, llm_ready = load_llm()
     semantic.index = semantic.open_index(db, enabled=llm_ready and not args.no_embeddings)
     conductor = build_conductor(llm, db)

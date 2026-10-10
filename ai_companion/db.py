@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS todo_items (
     done       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS todo_items_list ON todo_items (list_id);
+CREATE TABLE IF NOT EXISTS rai_events (
+    id         INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    kind       TEXT NOT NULL,   -- guardrail / deleted / private_mode / retention / ...
+    detail     TEXT NOT NULL    -- never holds secrets: masked and shortened
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS games (
     id          INTEGER PRIMARY KEY,
     finished_at TEXT NOT NULL,
@@ -345,6 +355,76 @@ class Database:
     def recent_memories(self, limit):
         rows = self._query("SELECT fact FROM memories ORDER BY id DESC LIMIT ?", (limit,))
         return [r["fact"] for r in rows]
+
+    # ------------------------------------------------------------ responsible AI
+    def memories(self):
+        """[{id, fact}], oldest first."""
+        return [dict(r) for r in self._query("SELECT id, fact FROM memories ORDER BY id")]
+
+    def delete_memory(self, memory_id):
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+            if self.has_fts:
+                self._conn.execute("DELETE FROM memories_fts WHERE rowid = ?", (memory_id,))
+            self._conn.execute("DELETE FROM embeddings WHERE kind = 'memory' AND ref_id = ?", (memory_id,))
+
+    def delete_personal_data(self):
+        """Forgets every saved fact and the whole conversation history (with
+        their search indexes). Reminders, lists and game results stay."""
+        with self._lock, self._conn:
+            counts = {
+                "facts": self._conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0],
+                "turns": self._conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0],
+            }
+            for table in ("memories", "conversations", "embeddings"):
+                self._conn.execute(f"DELETE FROM {table}")
+            if self.has_fts:
+                self._conn.execute("DELETE FROM memories_fts")
+                self._conn.execute("DELETE FROM conversations_fts")
+        return counts
+
+    def delete_conversations_before(self, moment):
+        """Deletes conversation turns older than `moment`. Returns how many."""
+        cutoff = now_text(moment)
+        with self._lock, self._conn:
+            ids = [r[0] for r in self._conn.execute("SELECT id FROM conversations WHERE created_at < ?", (cutoff,))]
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                self._conn.execute(f"DELETE FROM conversations WHERE id IN ({marks})", chunk)
+                if self.has_fts:
+                    self._conn.execute(f"DELETE FROM conversations_fts WHERE rowid IN ({marks})", chunk)
+                self._conn.execute(f"DELETE FROM embeddings WHERE kind = 'turn' AND ref_id IN ({marks})", chunk)
+        return len(ids)
+
+    def data_inventory(self):
+        """How much of each kind of personal data is stored."""
+        queries = {
+            "facts": "SELECT COUNT(*) FROM memories",
+            "turns": "SELECT COUNT(*) FROM conversations",
+            "reminders": "SELECT COUNT(*) FROM reminders WHERE status = 'pending'",
+            "lists": "SELECT COUNT(*) FROM todo_lists",
+            "games": "SELECT COUNT(*) FROM games",
+        }
+        with self._lock:
+            return {name: self._conn.execute(sql).fetchone()[0] for name, sql in queries.items()}
+
+    def add_rai_event(self, kind, detail=""):
+        self._write("INSERT INTO rai_events (created_at, kind, detail) VALUES (?, ?, ?)",
+                    (now_text(), kind, str(detail)[:200]))
+
+    def rai_events(self, since=None, limit=1000):
+        """[{created_at, kind, detail}], newest first."""
+        rows = self._query("SELECT created_at, kind, detail FROM rai_events WHERE created_at >= ? "
+                           "ORDER BY id DESC LIMIT ?", (now_text(since) if since else "", limit))
+        return [dict(r) for r in rows]
+
+    def get_setting(self, key, default=None):
+        rows = self._query("SELECT value FROM settings WHERE key = ?", (key,))
+        return rows[0]["value"] if rows else default
+
+    def set_setting(self, key, value):
+        self._write("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
 
     # ------------------------------------------------------------ todo lists
     def todo_lists(self):

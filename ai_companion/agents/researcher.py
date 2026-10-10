@@ -350,4 +350,7 @@ class Researcher(Agent):
             return "I found some results, but my language model is not responding."
         # Drop any sentence stating a number the results don't contain.
         grounded, _ = keep_supported(reply, query, today, *sources)
-        return grounded or NOT_FOUND_REPLY
+        if not grounded:
+            return NOT_FOUND_REPLY
+        # Say where it came from: this answer is from the web, not Rabbit's own knowledge.
+        return f"From a web search: {grounded}"

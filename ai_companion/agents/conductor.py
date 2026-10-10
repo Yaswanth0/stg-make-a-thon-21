@@ -11,8 +11,10 @@ import logging
 import re
 
 import config
+import guardrails
 import music
 import prompts
+import rai
 from agents.game import START as GAME_START
 from agents.game import is_results_question
 from recall import is_recall
@@ -124,6 +126,10 @@ class Conductor:
 
     def classify(self, text):
         """Returns (label, how) where how is "shortcut", "llm", "recall" or "default"."""
+        responsible = self.agents.get("rai")
+        if responsible is not None and responsible.claims(text):
+            # "Are you human?", "forget my locker code", "private mode", "repeat that"
+            return "rai", "shortcut"
         if is_recall(text):
             # "What was the gold price you told me?" is about the past, not a new search.
             return DEFAULT_LABEL, "recall"
@@ -152,7 +158,15 @@ class Conductor:
         return DEFAULT_LABEL, "default"
 
     def handle(self, text):
-        """Routes `text` to an agent, stores the turn and returns the reply."""
+        """Routes `text` to an agent, stores the turn and returns the reply.
+        Guardrails run before (on what was said) and after (on the reply)."""
+        text = guardrails.trim_input(text)
+        stopped = guardrails.check_input(text, audit=rai.audit)
+        if stopped is not None:
+            # Emergencies, self-harm, dangerous asks, secret numbers: no agent runs.
+            self._remember(text, stopped, "guardrail")
+            return stopped
+
         request = text
         previous = self.search_followup(text)
         if self._last_agent is not None and self._last_agent.awaiting_followup():
@@ -174,7 +188,16 @@ class Conductor:
             log.exception("%s failed on %r", agent.name, request)
             reply = "Sorry, something went wrong while handling that."
 
+        reply = guardrails.check_output(reply, audit=rai.audit)
         self._last_agent = agent
-        self._last_reply = reply
-        self.db.add_turn(text, reply, agent.name)
+        self._remember(text, reply, agent.name)
         return reply
+
+    def _remember(self, text, reply, agent_name):
+        """Keeps the turn: for "repeat that", and in the history unless private mode is on."""
+        self._last_reply = reply
+        responsible = self.agents.get("rai")
+        if responsible is not None:
+            responsible.last_reply = reply
+        if not rai.private:
+            self.db.add_turn(guardrails.mask_secrets(text), reply, agent_name)

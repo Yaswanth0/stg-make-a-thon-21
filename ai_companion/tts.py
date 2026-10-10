@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import config
+import rai
 
 log = logging.getLogger("tts")
 
@@ -100,7 +101,8 @@ class EspeakTTS:
 
     def synthesize(self, text, wav_path):
         subprocess.run(
-            ["espeak-ng", "-v", config.ESPEAK_VOICE, "-s", str(config.SPEECH_RATE), "-w", wav_path, "--stdin"],
+            ["espeak-ng", "-v", config.ESPEAK_VOICE, "-s", str(int(config.SPEECH_RATE * rai.speed)),
+             "-w", wav_path, "--stdin"],
             input=text, text=True, check=True,
         )
 
@@ -135,7 +137,7 @@ class KokoroTTS:
     def synthesize(self, text, wav_path):
         started = time.monotonic()
         samples, sample_rate = self._kokoro.create(
-            text, voice=self._voice, speed=config.KOKORO_SPEED, lang=self._lang,
+            text, voice=self._voice, speed=config.KOKORO_SPEED * rai.speed, lang=self._lang,
         )
         write_wav(wav_path, samples, sample_rate)
         log_timing(self.name, text, time.monotonic() - started, len(samples) / sample_rate)
@@ -149,6 +151,7 @@ class PiperTTS:
 
         model = piper_voice_path(voice, voices_dir)
         self._voice = PiperVoice.load(str(model))
+        self._make_options = SynthesisConfig
         self._options = SynthesisConfig(length_scale=config.PIPER_LENGTH_SCALE)
         # The first synthesis is slow (model warm-up); do it now, not on the first answer.
         with wave.open(io.BytesIO(), "wb") as wav:
@@ -157,8 +160,10 @@ class PiperTTS:
 
     def synthesize(self, text, wav_path):
         started = time.monotonic()
+        # "Speak slower / faster" (rai.speed): a longer length_scale is slower speech.
+        options = self._make_options(length_scale=config.PIPER_LENGTH_SCALE / rai.speed)
         with wave.open(wav_path, "wb") as wav:
-            self._voice.synthesize_wav(text, wav, syn_config=self._options)
+            self._voice.synthesize_wav(text, wav, syn_config=options)
         with wave.open(wav_path, "rb") as wav:
             audio_seconds = wav.getnframes() / wav.getframerate()
         log_timing(self.name, text, time.monotonic() - started, audio_seconds)

@@ -4,6 +4,7 @@ import re
 
 import display
 import prompts
+import rai
 from agents.base import Agent, to_second_person
 
 SYSTEM_PROMPT = prompts.ARCHIVIST
@@ -27,6 +28,8 @@ class Archivist(Agent):
         said = strip_command(text)
         if not said:
             return "What should I remember?"
+        if rai.private:
+            return "Private mode is on, so I won't save that. Say: private mode off, to let me remember again."
 
         data = self.llm.chat_json(SYSTEM_PROMPT, text) or {}
         fact = str(data.get("fact") or "").strip()

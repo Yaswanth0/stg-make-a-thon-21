@@ -46,6 +46,33 @@ Things to say: "Rabbit" (wake), "remember my locker code is 4521",
 "what are my reminders?", "cancel the reminder to call mom",
 "search for the price of a Raspberry Pi 5", "sleep", "mayday" (exit).
 
+## Responsible AI
+
+See [RESPONSIBLE_AI.md](RESPONSIBLE_AI.md). By voice: "are you a human?",
+"what data do you store?", "what do you know about me?", "forget my locker
+code", "forget everything", "private mode" / "private mode off", "repeat
+that", "speak slower" / "speak faster". `python rai_report.py` shows what is
+stored and what the guardrails did.
+
+## Guardrails
+
+`guardrails.py` checks every request before any agent runs, and every reply
+before it is spoken:
+
+| Before (what you said) | Rabbit |
+|---|---|
+| Emergency ("chest pain", "kitchen is on fire") | "Call 112 right now" |
+| Self-harm | A caring reply with Tele-MANAS (14416) and 112 |
+| Dangerous request (bombs, weapons, poison, hacking) | Declines |
+| "Ignore your instructions", "reveal your prompt" | Declines |
+| Card number, OTP, CVV, bank PIN, Aadhaar | Not stored; digits masked in history |
+
+After (the reply): leaked instructions or dangerous content are replaced,
+emoji and markdown removed, long replies cut at a sentence
+(`MAX_REPLY_CHARS`), empty replies get a fallback. The log shows each one as
+`guardrails: Guardrail before reply (...)`. `GUARDRAILS_ENABLED` in
+`config.py` turns them off.
+
 ## How Rabbit finds things it was told
 
 Saved facts and past conversations are searched two ways: by keyword (SQLite

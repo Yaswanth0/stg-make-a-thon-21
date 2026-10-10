@@ -15,6 +15,7 @@ from ctypes import CFUNCTYPE, c_char_p, c_int, cdll
 import config
 import display
 import music
+import rai
 from tts import EspeakTTS, clean_for_speech, make_tts, speech_chunks
 
 log = logging.getLogger("audio")
@@ -43,6 +44,7 @@ class Speaker:
         self._wavs = (f"{base}_a.wav", f"{base}_b.wav")
         self._cache_dir = f"{base}_cache"
         self._cache = {}        # piece of text -> its ready-made WAV file
+        self._cache_speed = rai.speed  # the speech speed the cache was made at
         self.prewarm_thread = None
         if phrases:
             self.prewarm_thread = threading.Thread(target=self._prewarm, args=(phrases,), name="tts-cache",
@@ -87,7 +89,7 @@ class Speaker:
     def _prepare(self, text, wav_path):
         """Path of a WAV saying `text`: the cached one, or a new one at wav_path."""
         cached = self._cache.get(text)
-        if cached:
+        if cached and rai.speed == self._cache_speed:  # made at another speed: say it fresh
             return cached
         self._synthesize(text, wav_path)
         return wav_path
