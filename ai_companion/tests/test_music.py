@@ -186,7 +186,7 @@ def test_rabbit_lowers_the_music_to_listen(player):
     asked = []
     c, said = companion(lambda t: asked.append(t) or "ok")
     c.on_text("Rabbit")
-    assert said == ["Yes?"] and player.is_listening()
+    assert said == [config.WAKE_REPLY] and player.is_listening()
     assert ["set_property", "volume", config.MUSIC_DUCK_VOLUME] in player.sent
     c.on_text("what time is it")          # no "Rabbit" needed right after
     assert asked == ["what time is it"]

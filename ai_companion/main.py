@@ -155,7 +155,7 @@ class Companion:
                     # "Rabbit, what is the capital of India" -> answer right away
                     self.respond(" ".join(rest))
                 else:
-                    self.say("Yes?")
+                    self.say(config.WAKE_REPLY)
                     self.last_activity = time.monotonic()
             return
 
@@ -173,7 +173,7 @@ class Companion:
 
         if woke and not rest:
             # Just "rabbit" while already awake: don't send it to the LLM.
-            self.say("Yes?")
+            self.say(config.WAKE_REPLY)
             self.last_activity = time.monotonic()
             return
 

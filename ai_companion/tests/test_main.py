@@ -32,7 +32,7 @@ def test_sleep_ignores_everything_but_wake_word():
 def test_wake_then_question_then_sleep():
     companion, said, asked = make()
     companion.on_text("Rabbit")
-    assert companion.state is State.RUNNING and said == ["Yes?"]
+    assert companion.state is State.RUNNING and said == [config.WAKE_REPLY]
     companion.on_text("what is two plus two")
     assert asked == ["what is two plus two"]
     companion.on_text("sleep")
@@ -63,6 +63,6 @@ def test_wake_word_while_running_is_not_sent_to_the_llm():
     companion, said, asked = make()
     companion.on_text("rabbit")
     companion.on_text("rabbit")
-    assert said == ["Yes?", "Yes?"] and asked == []
+    assert said == [config.WAKE_REPLY, config.WAKE_REPLY] and asked == []
     companion.on_text("Rabbit, what time is it?")
     assert asked == ["what time is it"]

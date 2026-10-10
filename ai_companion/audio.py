@@ -171,6 +171,8 @@ class VoiceInput:
     def __enter__(self):
         self._source = self._mic.__enter__()
         self._recognizer.adjust_for_ambient_noise(self._source, duration=1)
+        # The default (0.3 s of sound) threw away a quick "yes", "no" or "three" as noise.
+        self._recognizer.phrase_threshold = config.MIC_PHRASE_THRESHOLD
         return self
 
     def __exit__(self, *exc):
@@ -251,15 +253,21 @@ class VoiceInput:
         raw = audio.get_raw_data(convert_rate=16000, convert_width=2)
         samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
         kept, unclear = [], []
+        short = len(samples) / 16000 < config.WHISPER_SHORT_CLIP_SECONDS  # likely one or two words
         with display.screen.mood("hearing"):  # ears up while it works out what was said
             segments, _ = self._whisper.transcribe(
                 samples,
                 language="en",
                 beam_size=config.WHISPER_BEAM_SIZE,
-                vad_filter=True,
-                initial_prompt=config.WHISPER_PROMPT,  # words it should expect to hear
+                # The voice detector can cut a single short word; short clips skip it.
+                vad_filter=not short,
+                # Words it should expect to hear. A long hint pulls a one-word
+                # clip off course, so short clips get a short one.
+                initial_prompt=config.WHISPER_SHORT_PROMPT if short else config.WHISPER_PROMPT,
             )
+            heard_any = False
             for s in segments:  # transcription happens as this loop runs
+                heard_any = True
                 if is_confident(s):
                     kept.append(s.text.strip())
                 else:
@@ -267,6 +275,8 @@ class VoiceInput:
                         unclear.append(s.text.strip())
                     log.info("Ignored unclear speech (logprob %.2f, no-speech %.2f): %s",
                              s.avg_logprob, s.no_speech_prob, s.text.strip())
+        if not heard_any:
+            log.info("Heard a sound, but no words in it")
         text = " ".join(kept).strip()
         if is_repetitive(text):
             log.info("Ignored repetitive speech: %s", text)
@@ -276,11 +286,27 @@ class VoiceInput:
         return text or None
 
 
+# What Whisper typically "hears" in silence or noise. Said alone, these must
+# be clearly confident to count.
+NOISE_WORDS = {"you", "thank you", "thanks", "thanks for watching", "bye", "so", "uh", "um", "hmm",
+               "oh", "ah", "the", "i", "a"}
+
+
 def is_confident(segment):
-    """Whisper's own confidence: drops background noise it turned into words."""
-    return (segment.no_speech_prob < 0.6
-            and segment.avg_logprob >= config.WHISPER_MIN_LOGPROB
-            and segment.compression_ratio <= 2.4)  # higher = repeated words, a known hallucination
+    """Whisper's own confidence: drops background noise it turned into words.
+    One or two words get a lower bar, since a single word gives Whisper little
+    context ("three" scores lower than "select three"), except for its usual
+    noise words."""
+    if segment.compression_ratio > 2.4:  # repeated words: a known hallucination
+        return False
+    words = re.findall(r"[a-z0-9']+", segment.text.lower())
+    if not words:
+        return False
+    if len(words) <= 2:
+        if " ".join(words) in NOISE_WORDS:
+            return segment.no_speech_prob < 0.3 and segment.avg_logprob >= -0.8
+        return segment.no_speech_prob < 0.6 and segment.avg_logprob >= config.WHISPER_SHORT_MIN_LOGPROB
+    return segment.no_speech_prob < 0.6 and segment.avg_logprob >= config.WHISPER_MIN_LOGPROB
 
 
 def is_repetitive(text):

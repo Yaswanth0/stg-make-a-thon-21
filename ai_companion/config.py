@@ -9,6 +9,7 @@ SLEEP_WORD = "sleep"
 EXIT_WORD = "mayday"
 SILENCE_TIMEOUT = 120        # seconds of silence in RUNNING before going to sleep
 SLEEP_COMMAND_MAX_WORDS = 4  # "sleep", "go to sleep" count; longer sentences don't
+WAKE_REPLY = "Yes? How can I help you?"  # said to "Rabbit" / "Hello Rabbit" on its own
 
 # ---------------------------------------------------------------- rocker switch
 # ON = RUNNING, OFF = mic and speaker off. None = no switch fitted.
@@ -48,7 +49,7 @@ TTS_THREADS = 4              # CPU cores for Kokoro (the Pi 5 has 4)
 TTS_FIRST_CHUNK_WORDS = 8    # first sentences longer than this are split at a comma
 # Fixed replies, synthesized once at startup so they play instantly.
 TTS_CACHED_PHRASES = [
-    "Yes?", "Going to sleep.", "No activity. Going to sleep.", "Shutting down.",
+    WAKE_REPLY, "Going to sleep.", "No activity. Going to sleep.", "Shutting down.",
     "Switched on.", "Switched off.", "System ready.",
 ]
 
@@ -68,6 +69,10 @@ MIC_SAMPLE_RATE = 48000
 WHISPER_MODEL = "base.en"    # "small.en" understands much better but is ~3x slower
 WHISPER_BEAM_SIZE = 1        # 5 = a little more accurate, slower
 WHISPER_MIN_LOGPROB = -1.0   # Whisper's confidence; below this the speech is ignored
+WHISPER_SHORT_MIN_LOGPROB = -1.5  # the same for one- or two-word answers ("yes", "three")
+WHISPER_SHORT_CLIP_SECONDS = 2.5  # recordings shorter than this are treated as one or two words
+WHISPER_SHORT_PROMPT = "Rabbit. Sleep. Mayday. Yes. No. Stop. One, two, three, four, five, six, seven, eight, nine."
+MIC_PHRASE_THRESHOLD = 0.15  # seconds of sound that count as speech (library default 0.3)
 # Words Whisper should expect, so it spells them right instead of guessing.
 WHISPER_PROMPT = ("Rabbit. Mayday. Sleep. Search for the weather in Hyderabad. "
                   "Cricket score of India versus West Indies. Virat Kohli. "
